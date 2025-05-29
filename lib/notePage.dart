@@ -1,481 +1,427 @@
 import 'package:flutter/material.dart';
-import 'package:bibliapp/pages/biblia/comunidade_page.dart';
-import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
-import 'package:share_plus/share_plus.dart';
-import 'styles/styles.dart'; // Estilos e Animações
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '/services/supabase_service.dart';
+import '/styles/styles.dart';
 
-class DiarioPage extends StatelessWidget {
-  const DiarioPage({super.key});
+// Dicionário de cores
+final Map<String, Color> highlightColors = {
+  'amarelo': const Color(0xFFFFF9C4),
+  'azul': const Color(0xFFB2EBF2),
+  'laranja': const Color(0xFFFFCCBC),
+  'verde': const Color(0xFFC8E6C9),
+  'roxo': const Color(0xFFE1BEE7),
+};
+
+class NotePage extends StatefulWidget {
+  const NotePage({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 4,
-      child: Scaffold(
-        appBar: _buildAppBar(context),
-        body: _buildTabBarView(),
-        floatingActionButton: _buildFloatingActionButton(context),
-      ),
-    );
+  State<NotePage> createState() => _NotePageState();
+}
+
+class _NotePageState extends State<NotePage> {
+  final SupabaseService _supabaseService = SupabaseService();
+  List<Map<String, dynamic>> _notas = [];
+  String? _filtroCor;
+  final List<String> _cores = ['rosa', 'amarelo', 'roxo', 'azul', 'verde'];
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarNotas();
   }
 
-  AppBar _buildAppBar(BuildContext context) {
-    return AppBar(
-      backgroundColor: AppStyles.backgroundColor,
-      title: Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: AppStyles.avatarBackground,
-            child: Text('A', style: TextStyle(color: AppStyles.primaryGreen)),
-          ),
-          const SizedBox(width: 12),
-          Text('Diário', style: Theme.of(context).textTheme.titleLarge),
-        ],
-      ),
-      actions: [
-        IconButton(
-          icon: Icon(Icons.people_outline, color: AppStyles.primaryGreen),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const ComunidadePage()),
-          ),  
-        ),
-      ],
-      bottom: _buildTabBar(),
-    );
+  Future<void> _carregarNotas() async {
+    final notas = await _supabaseService.listarNotasDoUsuario();
+    setState(() {
+      _notas = _filtroCor == null
+          ? notas
+          : notas.where((n) => n['highlight_color'] == _filtroCor).toList();
+    });
   }
 
-  TabBar _buildTabBar() {
-    return TabBar(
-      indicatorColor: AppStyles.primaryGreen,
-      labelColor: AppStyles.primaryGreen,
-      unselectedLabelColor: AppStyles.textBrownDark,
-      tabs: [
-        Tab(text: 'Tudo', icon: Icon(Icons.apps)),
-        Tab(text: 'Destaques', icon: Icon(Icons.star_border)),
-        Tab(text: 'Anotações', icon: Icon(Icons.edit_note)),
-        Tab(text: 'Citações', icon: Icon(Icons.format_quote)),
-      ],
-    );
-  }
+  void _mostrarDialogoNovaNota(BuildContext context) {
+    final TextEditingController _notaController = TextEditingController();
+    final TextEditingController _verseController = TextEditingController();
+    String _corSelecionada = highlightColors.keys.first;
 
-  TabBarView _buildTabBarView() {
-    return TabBarView(
-      children: [
-        TudoTab(),
-        FavoritosTab(),
-        AnotacoesTab(),
-        Center(
-            child: Text('Citações',
-                style: TextStyle(color: AppStyles.textBrownDark))),
-      ],
-    );
-  }
-
-  FloatingActionButton _buildFloatingActionButton(BuildContext context) {
-    return FloatingActionButton(
-      onPressed: () => _showAddNoteDialog(context),
-      backgroundColor: AppStyles.primaryGreen,
-      child: const Icon(Icons.edit, color: Colors.white),
-    );
-  }
-
-  void _showAddNoteDialog(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) => NovaAnotacaoDialog(
-        onSave: () {
-          final anotacoesTabState =
-              context.findAncestorStateOfType<_AnotacoesTabState>();
-          anotacoesTabState?.loadAnotacoes();
-        },
-      ),
-    );
-  }
-}
-
-// ... (Mantenha apenas as classes TudoTab, FavoritosTab, AnotacoesTab e NovaAnotacaoDialog)
-class FavoritosTab extends StatefulWidget {
-  const FavoritosTab({super.key});
-
-  @override
-  _FavoritosTabState createState() => _FavoritosTabState();
-}
-
-class _FavoritosTabState extends State<FavoritosTab> {
-  List<String> favoritos = [];
-  bool isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    loadFavoritos();
-  }
-
-  Future<void> loadFavoritos() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      favoritos = prefs.getStringList('favoritos') ?? [];
-      isLoading = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (isLoading) {
-      return Center(
-          child: CircularProgressIndicator(color: AppStyles.primaryGreen));
-    }
-
-    return AnimationLimiter(
-      child: ListView.builder(
-        padding: AppStyles.defaultPadding,
-        itemCount: favoritos.length,
-        itemBuilder: (context, index) => AnimationConfiguration.staggeredList(
-          position: index,
-          duration: const Duration(milliseconds: 375),
-          child: SlideAnimation(
-            verticalOffset: 50.0,
-            child: FadeInAnimation(
-              child: Card(
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
-                color: AppStyles.diaryHighlight,
-                child: Padding(
-                  padding: AppStyles.tilePadding,
-                  child: Text(favoritos[index],
-                      style: Theme.of(context).textTheme.bodyMedium),
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFFF1FFFD),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20)),
+              title: const Text(
+                "Nova Anotação",
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, color: AppStyles.primaryGreen),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Seletor de cores
+                    Wrap(
+                      spacing: 12,
+                      children: highlightColors.entries.map((entry) {
+                        final isSelected = _corSelecionada == entry.key;
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _corSelecionada = entry.key;
+                            });
+                          },
+                          child: Container(
+                            width: 35,
+                            height: 35,
+                            decoration: BoxDecoration(
+                              color: entry.value,
+                              shape: BoxShape.circle,
+                              border: isSelected
+                                  ? Border.all(
+                                      color: AppStyles.primaryGreen,
+                                      width: 2,
+                                    )
+                                  : null,
+                            ),
+                            child: isSelected
+                                ? const Icon(Icons.check,
+                                    size: 20, color: Colors.black54)
+                                : null,
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                    // Campo de texto da nota
+                    TextField(
+                      controller: _notaController,
+                      decoration: InputDecoration(
+                        hintText: "Digite sua anotação",
+                        hintStyle:
+                            const TextStyle(color: AppStyles.primaryGreen),
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                      maxLines: 3,
+                    ),
+                    const SizedBox(height: 12),
+                    // Campo de referências bíblicas
+                    TextField(
+                      controller: _verseController,
+                      decoration: InputDecoration(
+                        hintText: "Referências bíblicas (opcional)",
+                        hintStyle:
+                            const TextStyle(color: AppStyles.primaryGreen),
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
+              actions: [
+                TextButton(
+                  child: const Text("Cancelar",
+                      style: TextStyle(
+                          color: AppStyles.primaryGreen, fontSize: 16)),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1F4549),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30)),
+                  ),
+                  child: const Text("Salvar",
+                      style: TextStyle(color: Colors.white, fontSize: 16)),
+                  onPressed: () async {
+                    final userId =
+                        Supabase.instance.client.auth.currentUser?.id;
+                    if (userId == null || _notaController.text.trim().isEmpty) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text('Por favor, digite uma anotação')),
+                        );
+                      }
+                      return;
+                    }
 
-class AnotacoesTab extends StatefulWidget {
-  const AnotacoesTab({super.key});
+                    try {
+                      final note = _notaController.text.trim();
+                      final List<int> verseIds = _verseController.text
+                          .split(',')
+                          .map((s) => int.tryParse(s.trim()))
+                          .whereType<int>()
+                          .toList();
 
-  @override
-  _AnotacoesTabState createState() => _AnotacoesTabState();
-}
+                      await Supabase.instance.client.from('bookmarks').insert({
+                        'note_text': note,
+                        'highlight_color': _corSelecionada,
+                        'bookmark_type': 'note',
+                        'verse_ids': verseIds,
+                        'user_id': userId,
+                        'created_at': DateTime.now().toIso8601String(),
+                        'updated_at': DateTime.now().toIso8601String(),
+                      });
 
-class _AnotacoesTabState extends State<AnotacoesTab> {
-  List<Map<String, dynamic>> anotacoes = [];
-  bool isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    loadAnotacoes();
-  }
-
-  Future<void> loadAnotacoes() async {
-    final prefs = await SharedPreferences.getInstance();
-    final anotacoesStr = prefs.getStringList('anotacoes') ?? [];
-    setState(() {
-      anotacoes = anotacoesStr
-          .map((e) => Map<String, dynamic>.from(jsonDecode(e)))
-          .toList();
-      isLoading = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (isLoading) {
-      return Center(child: CircularProgressIndicator());
-    }
-    if (anotacoes.isEmpty) {
-      return Center(
-          child: Text(
-              'Nenhuma anotação ainda. Adicione uma anotação em uma passagem bíblica!'));
-    }
-    return ListView.builder(
-      padding: EdgeInsets.all(16),
-      itemCount: anotacoes.length,
-      itemBuilder: (context, index) {
-        final anot = anotacoes[index];
-        return Card(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          elevation: 2,
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(anot['texto'] ?? '', style: TextStyle(fontSize: 16)),
-                SizedBox(height: 8),
-                if (anot['referencia'] != null)
-                  Text(anot['referencia'],
-                      style: TextStyle(color: Colors.grey)),
-                if (anot['data'] != null)
-                  Text(anot['data'],
-                      style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      if (context.mounted) {
+                        Navigator.of(context).pop();
+                        await _carregarNotas();
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Erro ao salvar nota: $e')),
+                        );
+                      }
+                    }
+                  },
+                ),
               ],
-            ),
-          ),
+            );
+          },
         );
       },
     );
   }
-}
 
-class NovaAnotacaoDialog extends StatefulWidget {
-  final VoidCallback onSave;
-  final Map<String, dynamic>? anotacao;
-  final int? index;
-  const NovaAnotacaoDialog(
-      {super.key, required this.onSave, this.anotacao, this.index});
-
-  @override
-  _NovaAnotacaoDialogState createState() => _NovaAnotacaoDialogState();
-}
-
-class _NovaAnotacaoDialogState extends State<NovaAnotacaoDialog> {
-  final TextEditingController _textoController = TextEditingController();
-  final TextEditingController _referenciaController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.anotacao != null) {
-      _textoController.text = widget.anotacao!['texto'] ?? '';
-      _referenciaController.text = widget.anotacao!['referencia'] ?? '';
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(widget.anotacao != null
-              ? 'Editar Anotação'
-              : 'Adicionar Anotação'),
-          IconButton(
-            icon: Icon(Icons.close),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ],
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _textoController,
-            decoration: InputDecoration(
-              hintText: 'Inserir anotação...',
-              border: InputBorder.none,
-            ),
-            maxLines: 3,
-            autofocus: true,
-          ),
-          TextField(
-            controller: _referenciaController,
-            decoration: InputDecoration(
-              labelText: 'Referência bíblica (opcional)',
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () {
-            final texto = _textoController.text.trim();
-            if (texto.isNotEmpty) Share.share(texto);
-          },
-          child: Text('COMPARTILHAR'),
-        ),
-        ElevatedButton(
-          onPressed: () async {
-            final texto = _textoController.text.trim();
-            if (texto.isEmpty) return;
-            final referencia = _referenciaController.text.trim();
-            final data = widget.anotacao != null
-                ? widget.anotacao!['data']
-                : DateTime.now().toString().substring(0, 16);
-            final id = widget.anotacao != null
-                ? widget.anotacao!['id']
-                : DateTime.now().millisecondsSinceEpoch.toString();
-            final bool pinned = widget.anotacao != null
-                ? widget.anotacao!['pinned'] as bool
-                : false;
-            final anotacaoMap = {
-              'id': id,
-              'texto': texto,
-              if (referencia.isNotEmpty) 'referencia': referencia,
-              'data': data,
-              'pinned': pinned,
-            };
-            final prefs = await SharedPreferences.getInstance();
-            final anotacoesStr = prefs.getStringList('anotacoes') ?? [];
-            if (widget.index != null) {
-              anotacoesStr[widget.index!] = jsonEncode(anotacaoMap);
-            } else {
-              anotacoesStr.add(jsonEncode(anotacaoMap));
-            }
-            await prefs.setStringList('anotacoes', anotacoesStr);
-            widget.onSave();
-            Navigator.pop(context);
-          },
-          child: Text(widget.anotacao != null ? 'ATUALIZAR' : 'SALVAR'),
-        ),
-      ],
+  void _editarNotaDialog(Map<String, dynamic> nota) {
+    final TextEditingController _notaController =
+        TextEditingController(text: nota['note_text'] ?? '');
+    final TextEditingController _verseController = TextEditingController(
+      text: nota['verse_ids'] != null && nota['verse_ids'].isNotEmpty
+          ? nota['verse_ids'].join(', ')
+          : '',
     );
-  }
-}
+    String _corSelecionada =
+        nota['highlight_color'] ?? highlightColors.keys.first;
 
-class TudoTab extends StatefulWidget {
-  const TudoTab({super.key});
-
-  @override
-  _TudoTabState createState() => _TudoTabState();
-}
-
-class _TudoTabState extends State<TudoTab> {
-  List<String> favoritos = [];
-  List<Map<String, dynamic>> anotacoes = [];
-  bool isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    loadFavoritos();
-    loadAnotacoes();
-  }
-
-  Future<void> loadFavoritos() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      favoritos = prefs.getStringList('favoritos') ?? [];
-    });
-  }
-
-  Future<void> loadAnotacoes() async {
-    final prefs = await SharedPreferences.getInstance();
-    final prefsList = prefs.getStringList('anotacoes') ?? [];
-    final temp = <Map<String, dynamic>>[];
-    for (var i = 0; i < prefsList.length; i++) {
-      final data = Map<String, dynamic>.from(jsonDecode(prefsList[i]));
-      final id = data['id'] ?? DateTime.now().millisecondsSinceEpoch.toString();
-      final pinned = data['pinned'] ?? false;
-      data['id'] = id;
-      data['pinned'] = pinned;
-      data['idx'] = i;
-      temp.add(data);
-    }
-    setState(() {
-      anotacoes = temp;
-      isLoading = false;
-    });
-  }
-
-  Future<void> togglePinned(Map<String, dynamic> anot) async {
-    final prefs = await SharedPreferences.getInstance();
-    final prefsList = prefs.getStringList('anotacoes') ?? [];
-    final idx = anot['idx'] as int;
-    final updated = Map<String, dynamic>.from(anot);
-    final newPinned = !(updated['pinned'] as bool);
-    updated['pinned'] = newPinned;
-    prefsList[idx] = jsonEncode({
-      'id': updated['id'],
-      'texto': updated['texto'],
-      if (updated['referencia'] != null) 'referencia': updated['referencia'],
-      'data': updated['data'],
-      'pinned': newPinned,
-    });
-    await prefs.setStringList('anotacoes', prefsList);
-    loadAnotacoes();
-  }
-
-  void _editAnotacao(Map<String, dynamic> anot) {
     showDialog(
       context: context,
-      builder: (context) => NovaAnotacaoDialog(
-        onSave: () => loadAnotacoes(),
-        anotacao: anot,
-        index: anot['idx'] as int,
-      ),
-    );
-  }
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFFF1FFFD),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20)),
+              title: const Text(
+                "Editar Anotação",
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, color: AppStyles.primaryGreen),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Seletor de cores
+                    Wrap(
+                      spacing: 12,
+                      children: highlightColors.entries.map((entry) {
+                        final isSelected = _corSelecionada == entry.key;
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _corSelecionada = entry.key;
+                            });
+                          },
+                          child: Container(
+                            width: 35,
+                            height: 35,
+                            decoration: BoxDecoration(
+                              color: entry.value,
+                              shape: BoxShape.circle,
+                              border: isSelected
+                                  ? Border.all(
+                                      color: AppStyles.primaryGreen,
+                                      width: 2,
+                                    )
+                                  : null,
+                            ),
+                            child: isSelected
+                                ? const Icon(Icons.check,
+                                    size: 20, color: Colors.black54)
+                                : null,
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                    // Campo de texto da nota
+                    TextField(
+                      controller: _notaController,
+                      decoration: InputDecoration(
+                        hintText: "Digite sua anotação",
+                        hintStyle:
+                            const TextStyle(color: AppStyles.primaryGreen),
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                      maxLines: 3,
+                    ),
+                    const SizedBox(height: 12),
+                    // Campo de referências bíblicas
+                    TextField(
+                      controller: _verseController,
+                      decoration: InputDecoration(
+                        hintText: "Referências bíblicas (opcional)",
+                        hintStyle:
+                            const TextStyle(color: AppStyles.primaryGreen),
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  child: const Text("Cancelar",
+                      style: TextStyle(
+                          color: AppStyles.primaryGreen, fontSize: 16)),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1F4549),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30)),
+                  ),
+                  child: const Text("Salvar",
+                      style: TextStyle(color: Colors.white, fontSize: 16)),
+                  onPressed: () async {
+                    final userId =
+                        Supabase.instance.client.auth.currentUser?.id;
+                    if (userId == null || _notaController.text.trim().isEmpty) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text('Por favor, digite uma anotação')),
+                        );
+                      }
+                      return;
+                    }
 
-  @override
-  Widget build(BuildContext context) {
-    if (isLoading) {
-      return Center(child: CircularProgressIndicator());
-    }
-    if (favoritos.isEmpty && anotacoes.isEmpty) {
-      return Center(child: Text('Nenhum favorito ou anotação ainda.'));
-    }
-    final pinnedList = anotacoes.where((a) => a['pinned'] == true).toList();
-    final otherList = anotacoes.where((a) => a['pinned'] != true).toList();
-    final totalCount = pinnedList.length + favoritos.length + otherList.length;
-    return ListView.builder(
-      padding: EdgeInsets.all(16),
-      itemCount: totalCount,
-      itemBuilder: (context, index) {
-        if (index < pinnedList.length) {
-          final anot = pinnedList[index];
-          return _buildAnotacaoCard(anot);
-        } else if (index < pinnedList.length + favoritos.length) {
-          final fav = favoritos[index - pinnedList.length];
-          return Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Text(fav, style: TextStyle(fontSize: 16)),
-            ),
-          );
-        } else {
-          final anot = otherList[index - pinnedList.length - favoritos.length];
-          return _buildAnotacaoCard(anot);
-        }
+                    try {
+                      final note = _notaController.text.trim();
+                      final List<int> verseIds = _verseController.text
+                          .split(',')
+                          .map((s) => int.tryParse(s.trim()))
+                          .whereType<int>()
+                          .toList();
+
+                      await _supabaseService.criarOuAtualizarNota(
+                        id: nota['id'].toString(),
+                        noteText: note,
+                        highlightColor: _corSelecionada,
+                        verseIds: verseIds,
+                      );
+
+                      if (context.mounted) {
+                        Navigator.of(context).pop();
+                        await _carregarNotas();
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Erro ao atualizar nota: $e')),
+                        );
+                      }
+                    }
+                  },
+                ),
+              ],
+            );
+          },
+        );
       },
     );
   }
 
-  Widget _buildAnotacaoCard(Map<String, dynamic> anot) {
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      color: AppStyles.diaryHighlight,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(anot['texto'] ?? '',
-                style: Theme.of(context).textTheme.bodyMedium),
-            if (anot['referencia'] != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(anot['referencia'],
-                    style: Theme.of(context).textTheme.labelLarge),
-              ),
-            Divider(color: AppStyles.accentBrown),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(anot['data'] ?? '',
-                    style: Theme.of(context).textTheme.labelSmall),
-                IconButton(
-                  icon: Icon(
-                    anot['pinned'] ? Icons.push_pin : Icons.push_pin_outlined,
-                    color: anot['pinned']
-                        ? AppStyles.pinColor
-                        : AppStyles.accentBrown,
+  Future<void> _removerNota(int id) async {
+    await _supabaseService.deletarNota(id.toString());
+    _carregarNotas();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Minhas Anotações'),
+        actions: [
+          PopupMenuButton<String?>(
+            icon: const Icon(Icons.filter_list),
+            onSelected: (cor) {
+              setState(() => _filtroCor = cor);
+              _carregarNotas();
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: null, child: Text('Todas')),
+              ..._cores.map((cor) => PopupMenuItem(
+                    value: cor,
+                    child: Text('Cor: $cor'),
+                  )),
+            ],
+          ),
+        ],
+      ),
+      body: _notas.isEmpty
+          ? const Center(child: Text('Nenhuma anotação encontrada.'))
+          : ListView.builder(
+              itemCount: _notas.length,
+              itemBuilder: (context, index) {
+                final nota = _notas[index];
+                return Card(
+                  color:
+                      highlightColors[nota['highlight_color']] ?? Colors.white,
+                  child: ListTile(
+                    title: Text(nota['note_text'] ?? ''),
+                    subtitle: nota['verse_ids'] != null &&
+                            nota['verse_ids'].isNotEmpty
+                        ? Text('Versículos: ${nota['verse_ids'].join(', ')}')
+                        : null,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.edit),
+                          onPressed: () => _editarNotaDialog(nota),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete),
+                          onPressed: () => _removerNota(nota['id']),
+                        ),
+                      ],
+                    ),
                   ),
-                  onPressed: () => togglePinned(anot),
-                ),
-              ],
+                );
+              },
             ),
-          ],
-        ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _mostrarDialogoNovaNota(context),
+        backgroundColor: Theme.of(context).primaryColor,
+        child: const Icon(Icons.add, color: Colors.white),
       ),
     );
   }

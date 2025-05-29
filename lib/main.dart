@@ -81,7 +81,7 @@ class _MainNavigationState extends State<MainNavigation> {
     ExplorarPage(),
     BookListPage(),
     OracoesPage(),
-    DiarioPage(),
+    NotePage(),
   ];
 
   void _onItemTapped(int index) => setState(() => _selectedIndex = index);

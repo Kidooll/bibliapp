@@ -22,6 +22,7 @@ class _HomePageState extends State<HomePage> {
   final UnsplashService _unsplashService = UnsplashService();
   late Future<Map<String, dynamic>?> _devotionalFuture;
   late Future<String> _imageFuture;
+  // ignore: unused_field, prefer_final_fields
   DateTime _selectedDate = DateTime.now();
 
   // Lista de dias para o calendário
@@ -38,8 +39,12 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _initCalendarDays() {
-    // Gera 7 dias começando de 3 dias antes da data atual
-    DateTime startDate = DateTime.now().subtract(const Duration(days: 3));
+    // Encontra o domingo da semana atual
+    final now = DateTime.now();
+    // Subtrai o dia da semana (0=domingo, 1=segunda, etc.) para chegar no domingo
+    final startDate = now.subtract(Duration(days: now.weekday % 7));
+
+    // Gera 7 dias a partir do domingo (de domingo a sábado)
     _calendarDays =
         List.generate(7, (index) => startDate.add(Duration(days: index)));
   }

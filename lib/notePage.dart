@@ -332,7 +332,7 @@ class _NotePageState extends State<NotePage> {
                           .toList();
 
                       await _supabaseService.criarOuAtualizarNota(
-                        id: nota['id'].toString(),
+                        id: nota['id']?.toString(),
                         noteText: note,
                         highlightColor: _corSelecionada,
                         verseIds: verseIds,
@@ -347,6 +347,9 @@ class _NotePageState extends State<NotePage> {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(content: Text('Erro ao atualizar nota: $e')),
                         );
+                        // Log para depuração
+                        debugPrint('Erro detalhado: $e');
+                        debugPrint('Tipo do ID: ${nota['id']?.runtimeType}');
                       }
                     }
                   },

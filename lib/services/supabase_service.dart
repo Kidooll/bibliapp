@@ -55,7 +55,6 @@ class SupabaseService {
     required String noteText,
     required String highlightColor,
     List<int>? verseIds,
-    bool isFavorite = false,
   }) async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) return;
@@ -65,26 +64,25 @@ class SupabaseService {
       'bookmark_type': 'note',
       'note_text': noteText,
       'highlight_color': highlightColor.isNotEmpty ? highlightColor : null,
-      'is_favorite': isFavorite,
       'updated_at': DateTime.now().toIso8601String(),
     };
-
-    // Add id if it's an update
-    if (id != null) {
-      data['id'] = id;
-    }
 
     // Add verse_ids if provided
     if (verseIds != null && verseIds.isNotEmpty) {
       data['verse_ids'] = verseIds;
     }
 
-    // Se for uma atualização, mantém a data de criação original
-    if (id == null) {
+    // Se for uma atualização, usa o ID existente
+    if (id != null && id.isNotEmpty) {
+      await _client
+          .from('bookmarks')
+          .update(data)
+          .eq('id', int.tryParse(id) ?? 0);
+    } else {
+      // Se for uma nova nota, adiciona a data de criação
       data['created_at'] = DateTime.now().toIso8601String();
+      await _client.from('bookmarks').insert(data);
     }
-
-    await _client.from('bookmarks').upsert(data);
   }
 
   Future<void> deletarNota(String noteId) async {
@@ -92,18 +90,6 @@ class SupabaseService {
     if (userId == null) return;
 
     await _client.from('bookmarks').delete().match({
-      'id': noteId,
-      'user_id': userId,
-    });
-  }
-
-  Future<void> favoritarNota(String noteId, bool favorito) async {
-    final userId = _client.auth.currentUser?.id;
-    if (userId == null) return;
-
-    await _client.from('bookmarks').update({
-      'is_favorite': favorito,
-    }).match({
       'id': noteId,
       'user_id': userId,
     });

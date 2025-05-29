@@ -1,0 +1,25 @@
+{
+    "flutter": {
+        "platforms": {
+            "android": {
+                "default": {
+                    "projectId": "appbibliadevocional",
+                    "appId": "1:959958452938:android:309c9cbb930a466fccc233",
+                    "fileOutput": "android/app/google-services.json"
+                }
+            },
+            "dart": {
+                "lib/firebase_options.dart": {
+                    "projectId": "appbibliadevocional",
+                    "configurations": {
+                        "android": "1:959958452938:android:309c9cbb930a466fccc233",
+                        "ios": "1:959958452938:ios:6cbaac73f696f27fccc233",
+                        "macos": "1:959958452938:ios:6cbaac73f696f27fccc233",
+                        "web": "1:959958452938:web:5c6dc639762321ddccc233",
+                        "windows": "1:959958452938:web:77257f3bdd3511edccc233"
+                    }
+                }
+            }
+        }
+    }
+}

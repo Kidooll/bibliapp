@@ -1,0 +1,2 @@
+D:/AppFlutter/bibliapp/android/app/.cxx/Debug/561w5r6m/armeabi-v7a/CMakeFiles/edit_cache.dir
+D:/AppFlutter/bibliapp/android/app/.cxx/Debug/561w5r6m/armeabi-v7a/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,2 @@
+C:/Users/Airan Neves/Documents/AppFlutter/bibliapp/android/app/.cxx/RelWithDebInfo/40642391/x86_64/CMakeFiles/edit_cache.dir
+C:/Users/Airan Neves/Documents/AppFlutter/bibliapp/android/app/.cxx/RelWithDebInfo/40642391/x86_64/CMakeFiles/rebuild_cache.dir

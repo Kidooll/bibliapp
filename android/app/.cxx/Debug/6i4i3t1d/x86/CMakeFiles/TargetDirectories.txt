@@ -1,0 +1,2 @@
+D:/AppFlutter/bibliapp/android/app/.cxx/Debug/6i4i3t1d/x86/CMakeFiles/edit_cache.dir
+D:/AppFlutter/bibliapp/android/app/.cxx/Debug/6i4i3t1d/x86/CMakeFiles/rebuild_cache.dir

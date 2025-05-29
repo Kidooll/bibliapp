@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "959958452938",
+    "firebase_url": "https://appbibliadevocional-default-rtdb.firebaseio.com",
+    "project_id": "appbibliadevocional",
+    "storage_bucket": "appbibliadevocional.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:959958452938:android:309c9cbb930a466fccc233",
+        "android_client_info": {
+          "package_name": "com.bibliadevocional.biblia"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "959958452938-bkdje9c0p6dosbhd1clmpfnn1103d0nl.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.bibliadevocional.biblia",
+            "certificate_hash": "9bbb3186b2189ef16d8f272bdab59362c395cbb4"
+          }
+        },
+        {
+          "client_id": "959958452938-gdrv2iui6lb22v20ofhc5daal840h39t.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDUSBydS9UpH7Ja3kc48tzcNWsGZUZT2V8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "959958452938-gdrv2iui6lb22v20ofhc5daal840h39t.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "959958452938-rdjpc3ac6tc7ihkgej2arvgpq7cv6lm8.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.bibliadevocional.biblia"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

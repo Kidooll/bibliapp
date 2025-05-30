@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
@@ -8,26 +11,79 @@ import 'package:flutter/foundation.dart';
 import 'package:collection/collection.dart';
 import '../styles/styles.dart';
 
-class _CircleProgressPainter extends CustomPainter {
+/// Cores disponíveis para destaque
+const List<String> _highlightColors = [
+  '#FFF9C4', // amarelo
+  '#FFE0E0', // vermelho
+  '#C8E6C9', // verde
+  '#BBDEFB', // azul
+  '#E1BEE7', // roxo
+  '#F8BBD0', // rosa
+];
+
+/// Gerenciador de cache para destaques
+class HighlightCache {
+  static final Map<String, Map<String, dynamic>> _cache = {};
+  static bool _isInitialized = false;
+
+  /// Adiciona ou atualiza um highlight no cache
+  static void updateHighlight(String key, Map<String, dynamic> highlight) {
+    _cache[key] = Map<String, dynamic>.from(highlight);
+  }
+
+  /// Obtém um highlight do cache
+  static Map<String, dynamic>? getHighlight(String key) {
+    return _cache[key];
+  }
+
+  /// Remove um highlight do cache
+  static void removeHighlight(String key) {
+    _cache.remove(key);
+  }
+
+  /// Limpa todo o cache
+  static void clear() {
+    _cache.clear();
+    _isInitialized = false;
+  }
+
+  /// Verifica se o cache foi inicializado
+  static bool get isInitialized => _isInitialized;
+
+  /// Marca o cache como inicializado
+  static void markAsInitialized() {
+    _isInitialized = true;
+  }
+}
+
+/// Widget personalizado para exibir um círculo de progresso
+class CircleProgressPainter extends CustomPainter {
   final double progress;
   final Color color;
+  final double strokeWidth;
 
-  _CircleProgressPainter({required this.progress, required this.color});
+  const CircleProgressPainter({
+    required this.progress,
+    required this.color,
+    this.strokeWidth = 3.0,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
       ..color = color.withOpacity(0.5)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.0;
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
 
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 2;
-    final sweepAngle = 2 * 3.14159 * progress;
+    final center = size.center(Offset.zero);
+    final radius = (size.shortestSide - strokeWidth) / 2;
+    final sweepAngle = 2 * math.pi * progress;
+    const startAngle = -math.pi / 2;
 
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
-      -3.14159 / 2,
+      startAngle,
       sweepAngle,
       false,
       paint,
@@ -35,13 +91,16 @@ class _CircleProgressPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_CircleProgressPainter oldDelegate) =>
-      progress != oldDelegate.progress || color != oldDelegate.color;
+  bool shouldRepaint(CircleProgressPainter oldDelegate) {
+    return progress != oldDelegate.progress || 
+           color != oldDelegate.color ||
+           strokeWidth != oldDelegate.strokeWidth;
+  }
 }
 
+/// Tween para animação de transição de cor
 class HighlightColorTween extends Tween<Color?> {
-  HighlightColorTween({Color? begin, Color? end})
-      : super(begin: begin, end: end);
+  HighlightColorTween({Color? begin, Color? end}) : super(begin: begin, end: end);
 
   @override
   Color? lerp(double t) => Color.lerp(begin, end, t);
@@ -62,6 +121,7 @@ returns json as $$
 $$ language sql;
 */
 
+/// Modal de ações para versículos da Bíblia
 class VerseActionsModal extends StatefulWidget {
   final int verseId;
   final String text;
@@ -80,123 +140,43 @@ class VerseActionsModal extends StatefulWidget {
   State<VerseActionsModal> createState() => _VerseActionsModalState();
 }
 
+/// Estado do modal de ações de versículo
 class _VerseActionsModalState extends State<VerseActionsModal>
     with TickerProviderStateMixin {
-  final SupabaseClient supabase = Supabase.instance.client;
+  final SupabaseClient _supabase = Supabase.instance.client;
   bool _isLoading = false;
   String? _currentHighlightColor;
-  String? _lastSelectedColor;
-  late AnimationController _colorController;
-  late Animation<Color?> _colorAnimation;
-  
-  // Cores disponíveis para destaque
-  static const List<String> colors = [
-    '#FFF9C4', // amarelo
-    '#FFE0E0', // vermelho
-    '#C8E6C9', // verde
-    '#BBDEFB', // azul
-    '#E1BEE7', // roxo
-    '#F8BBD0', // rosa
-  ];
+  String? _lastSelectedColor; // Stores the previous highlight color for error recovery
+  late final AnimationController _colorController;
+  late final ColorTween _colorTween;
 
-  // Cache local para destaques
-  static final Map<String, Map<String, dynamic>> _highlightCache = {};
-  static bool _isCacheInitialized = false;
-  
   // Chave para o cache do usuário atual
-  String? get _cacheKey {
-    final user = supabase.auth.currentUser;
-    return user?.id;
-  }
-  final _colorTween = HighlightColorTween();
+  String? get _cacheKey => _supabase.auth.currentUser?.id;
+  
+  // Chave única para o cache deste versículo
+  String? get _verseCacheKey => _cacheKey != null ? '${_cacheKey}_${widget.verseId}' : null;
+  
+  // Verifica se há um highlight ativo
+  bool get _hasHighlight => _currentHighlightColor != null && _currentHighlightColor!.isNotEmpty;
 
   @override
   void initState() {
     super.initState();
     _currentHighlightColor = widget.highlightColor;
-    _lastSelectedColor = widget.highlightColor;
 
     _colorController = AnimationController(
       vsync: this,
-      duration: Duration.zero, // Animação instantânea
-      reverseDuration: Duration.zero,
+      duration: const Duration(milliseconds: 200),
     )..addStatusListener(_handleAnimationStatus);
 
-    _updateColorTween();
-    
-    // Garante que a cor atual está atualizada com o cache
-    _updateHighlightFromCache();
-    
-    // Inicializa o cache apenas se o widget estiver montado
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _initializeCache().then((_) {
-          if (mounted) {
-            _updateHighlightFromCache();
-          }
-        });
-      }
-    });
-  }
-  
-  void _updateHighlightFromCache() {
-    if (_cacheKey == null) return;
-    
-    final cacheKey = '${_cacheKey}_${widget.verseId}';
-    final cachedHighlight = _highlightCache[cacheKey];
-    
-    if (cachedHighlight != null && mounted) {
-      setState(() {
-        _currentHighlightColor = cachedHighlight['highlight_color'];
-        _lastSelectedColor = _currentHighlightColor;
-        _colorController.value = 1.0; // Garante que a animação está no estado final
-      });
-    }
-  }
-  
-  Future<void> _initializeCache() async {
-    if (_isCacheInitialized || _cacheKey == null) return;
-    
-    try {
-      final response = await supabase
-          .from('bookmarks')
-          .select()
-          .eq('user_id', _cacheKey!)
-          .eq('bookmark_type', 'highlight');
-          
-      if (response != null) {
-        final highlights = List<Map<String, dynamic>>.from(response);
-        for (var highlight in highlights) {
-          final verseIds = List<int>.from(highlight['verse_ids'] ?? []);
-          for (var verseId in verseIds) {
-            _highlightCache['${_cacheKey}_$verseId'] = Map<String, dynamic>.from(highlight);
-          }
-        }
-        _isCacheInitialized = true;
-      }
-    } catch (e) {
-      debugPrint('Erro ao inicializar cache: $e');
-    }
-  }
-
-  void _handleAnimationStatus(AnimationStatus status) {
-    if (status == AnimationStatus.completed) {
-      if (mounted) {
-        setState(() {
-          _lastSelectedColor = _currentHighlightColor;
-        });
-      }
-    }
-  }
-
-  void _updateColorTween() {
-    _colorTween
-      ..begin = _getColorFromHex(_lastSelectedColor)
-      ..end = _getColorFromHex(_currentHighlightColor);
-    _colorAnimation = _colorTween.animate(CurvedAnimation(
+    _colorTween = ColorTween();
+    // Initialize animation
+    _colorTween.animate(CurvedAnimation(
       parent: _colorController,
-      curve: Curves.easeOutQuad,
+      curve: Curves.easeInOut,
     ));
+
+    _initializeHighlightState();
   }
 
   @override
@@ -205,20 +185,207 @@ class _VerseActionsModalState extends State<VerseActionsModal>
     super.dispose();
   }
 
-  Color? _getColorFromHex(String? hex) {
-    if (hex == null || hex.isEmpty) return null;
-    try {
-      final buffer = StringBuffer();
-      if (hex.length == 6 || hex.length == 7) {
-        buffer.write('ff');
-        buffer.write(hex.replaceFirst('#', ''));
-        return Color(int.parse(buffer.toString(), radix: 16));
-      }
-      return null;
-    } catch (e) {
-      debugPrint('Error parsing color: $e');
-      return null;
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildHeader(),
+          const SizedBox(height: 16),
+          _buildHighlightColors(),
+          const SizedBox(height: 16),
+          _buildActionButtons(),
+        ],
+      ),
+    );
+  }
+
+  /// Inicializa o estado do highlight
+  void _initializeHighlightState() {
+    if (_verseCacheKey == null) return;
+    
+    _loadHighlightFromCache();
+    _loadHighlightFromDatabase();
+  }
+  
+  /// Carrega o highlight do cache
+  void _loadHighlightFromCache() {
+    if (_verseCacheKey == null) return;
+    
+    final cachedHighlight = HighlightCache.getHighlight(_verseCacheKey!);
+    if (cachedHighlight != null && mounted) {
+      setState(() {
+        _currentHighlightColor = cachedHighlight['highlight_color'] as String?;
+      });
     }
+  }
+
+  /// Carrega o highlight do banco de dados
+  Future<void> _loadHighlightFromDatabase() async {
+    if (_verseCacheKey == null) return;
+    
+    try {
+      final user = _supabase.auth.currentUser;
+      if (user == null) return;
+
+      final response = await _supabase.rpc('get_highlights_for_verse',
+          params: {'p_verse_id': widget.verseId, 'p_user_id': user.id}).maybeSingle();
+          
+      if (response != null) {
+        final highlight = response;
+        final highlightColor = highlight['highlight_color'] as String?;
+        
+        if (highlightColor != null && mounted) {
+          setState(() {
+            _currentHighlightColor = highlightColor;
+            _colorController.value = 1.0;
+          });
+          
+          // Atualiza o cache local
+          HighlightCache.updateHighlight(_verseCacheKey!, highlight);
+        }
+      }
+    } catch (e) {
+      debugPrint('Erro ao carregar highlight: $e');
+    }
+  }
+
+  /// Atualiza o tween da cor para animação
+  void _updateColorTween() {
+    _colorTween.begin = _colorTween.end;
+    _colorTween.end = _currentHighlightColor != null
+        ? Color(int.parse(_currentHighlightColor!.substring(1, 7), radix: 16) + 0xFF000000)
+        : Colors.transparent;
+    
+    // Update the animation with the new tween values
+    _colorTween.animate(CurvedAnimation(
+      parent: _colorController,
+      curve: Curves.easeInOut,
+    ));
+  }
+
+  /// Handles animation status changes
+  void _handleAnimationStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed && mounted) {
+      setState(() {
+        _colorController.value = 1.0;
+      });
+    }
+  }
+
+  /// Constrói o cabeçalho do modal
+  Widget _buildHeader() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          'Ações do Versículo',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ],
+    );
+  }
+
+  /// Constrói a paleta de cores para destaque
+  Widget _buildHighlightColors() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Destacar com cor',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: _highlightColors.map((color) {
+            final isSelected = _currentHighlightColor == color;
+            return GestureDetector(
+              onTap: () => _setHighlight(color),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 32,
+                height: 32,
+                margin: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Color(int.parse(color.substring(1, 7), radix: 16) + 0xFF000000),
+                  shape: BoxShape.circle,
+                  border: isSelected
+                      ? Border.all(color: Theme.of(context).primaryColor, width: 2)
+                      : null,
+                  boxShadow: [
+                    if (isSelected)
+                      BoxShadow(
+                        color: Theme.of(context).primaryColor.withOpacity(0.5),
+                        blurRadius: 8,
+                        spreadRadius: 2,
+                      ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  /// Constrói os botões de ação
+  Widget _buildActionButtons() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _buildActionButton(
+          icon: Icons.share,
+          label: 'Compartilhar',
+          onPressed: _shareVerse,
+        ),
+        _buildActionButton(
+          icon: Icons.copy,
+          label: 'Copiar',
+          onPressed: _copyToClipboard,
+        ),
+        if (_hasHighlight)
+          _buildActionButton(
+            icon: Icons.clear,
+            label: 'Remover',
+            onPressed: _removeHighlight,
+          ),
+      ],
+    );
+  }
+
+  /// Constrói um botão de ação
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: Icon(icon),
+          onPressed: onPressed,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
+    );
   }
 
   Future<void> _removeHighlight() async {
@@ -226,40 +393,30 @@ class _VerseActionsModalState extends State<VerseActionsModal>
     setState(() => _isLoading = true);
 
     try {
-      final user = supabase.auth.currentUser;
+      final user = _supabase.auth.currentUser;
       if (user == null) return;
 
       final scaffold = ScaffoldMessenger.of(context);
 
-      // Anima a remoção
-      await _animateColorTransition(null);
-
-      // Busca o highlight existente para este versículo
-      final response = await supabase.rpc('get_highlights_for_verse',
-          params: {'p_verse_id': widget.verseId, 'p_user_id': user.id});
-
-      final existingHighlights = (response as List?) ?? [];
-
-      if (existingHighlights.isNotEmpty) {
-        await supabase
-            .from('bookmarks')
-            .delete()
-            .eq('id', (existingHighlights[0] as Map)['id'] as int);
-      }
-
-      // Atualiza o estado local
-      if (mounted) {
-        setState(() {
-          _currentHighlightColor = null;
-          _isLoading = false;
-        });
+      // Remove do cache local imediatamente
+      if (_verseCacheKey != null) {
+        HighlightCache.removeHighlight(_verseCacheKey!);
       }
 
       // Atualiza a UI
-      widget.onRefresh();
-
-      // Mostra mensagem de sucesso
       if (mounted) {
+        setState(() {
+          _currentHighlightColor = null;
+          _colorController.value = 0.0;
+        });
+      }
+
+      // Remove do banco de dados
+      await _performDatabaseUpdate('', user.id, null);
+
+      // Atualiza a lista de versículos
+      if (mounted) {
+        widget.onRefresh();
         scaffold.showSnackBar(
           const SnackBar(
             content: Text('Destaque removido'),
@@ -269,29 +426,12 @@ class _VerseActionsModalState extends State<VerseActionsModal>
         );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Erro ao remover destaque'),
-            duration: Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      _showError('Erro ao remover destaque: ${e.toString()}');
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
       }
     }
-  }
-
-  Future<void> _animateColorTransition(String? newColor) async {
-    if (_lastSelectedColor == newColor) return;
-
-    // Atualiza imediatamente sem animação
-    _lastSelectedColor = _currentHighlightColor;
-    _updateColorTween();
-    _colorController.value = 1.0; // Define o valor final imediatamente
   }
 
   Future<void> _setHighlight(String hex) async {
@@ -302,7 +442,7 @@ class _VerseActionsModalState extends State<VerseActionsModal>
     final previousColor = _currentHighlightColor;
 
     try {
-      final user = supabase.auth.currentUser;
+      final user = _supabase.auth.currentUser;
       if (user == null) return;
 
       final scaffold = ScaffoldMessenger.of(context);
@@ -317,7 +457,6 @@ class _VerseActionsModalState extends State<VerseActionsModal>
       if (mounted) {
         setState(() {
           _currentHighlightColor = hex;
-          _lastSelectedColor = hex;
           _colorController.value = 1.0;
         });
       }
@@ -339,7 +478,6 @@ class _VerseActionsModalState extends State<VerseActionsModal>
       if (mounted) {
         setState(() {
           _currentHighlightColor = previousColor;
-          _lastSelectedColor = previousColor;
           _colorController.value = 1.0;
         });
         _showError('Erro ao destacar versículo: $e');
@@ -354,11 +492,11 @@ class _VerseActionsModalState extends State<VerseActionsModal>
   }
 
   Future<void> _performDatabaseUpdate(
-      String hex, String userId, dynamic existingHighlightId) async {
+    String hex, String userId, dynamic existingHighlightId) async {
     try {
       // Se existe um highlight, atualiza. Senão, cria um novo.
       if (existingHighlightId != null) {
-        await supabase
+        await _supabase
             .from('bookmarks')
             .update({
               'highlight_color': hex,
@@ -366,7 +504,7 @@ class _VerseActionsModalState extends State<VerseActionsModal>
             })
             .eq('id', existingHighlightId);
       } else {
-        await supabase.from('bookmarks').insert({
+        await _supabase.from('bookmarks').insert({
           'user_id': userId,
           'verse_ids': [widget.verseId],
           'bookmark_type': 'highlight',
@@ -380,33 +518,39 @@ class _VerseActionsModalState extends State<VerseActionsModal>
     }
   }
 
+  /// Processa a atualização do destaque
   Future<void> _processHighlightUpdate(
-      String hex, String userId, ScaffoldMessengerState scaffold) async {
-    if (_cacheKey == null) return;
-      
-    final cacheKey = '${_cacheKey}_${widget.verseId}';
+    String hex, String userId, ScaffoldMessengerState scaffold) async {
+    if (_verseCacheKey == null) return;
+
     final now = DateTime.now().toIso8601String();
-    
+
     try {
       // Verifica se já existe um highlight para este versículo
-      final existingHighlight = _highlightCache[cacheKey];
+      final existingHighlight = HighlightCache.getHighlight(_verseCacheKey!);
       final existingHighlightId = existingHighlight?['id'] as int?;
-      
+
       // Atualiza o cache local imediatamente para feedback visual
       if (mounted) {
+        final updatedHighlight = {
+          'id': existingHighlightId,
+          'user_id': userId,
+          'verse_ids': [widget.verseId],
+          'bookmark_type': 'highlight',
+          'highlight_color': hex,
+          'created_at': existingHighlight?['created_at'] ?? now,
+          'updated_at': now,
+        };
+
         setState(() {
-          _highlightCache[cacheKey] = {
-            'id': existingHighlightId,
-            'user_id': userId,
-            'verse_ids': [widget.verseId],
-            'bookmark_type': 'highlight',
-            'highlight_color': hex,
-            'created_at': existingHighlight?['created_at'] ?? now,
-            'updated_at': now,
-          };
+          _currentHighlightColor = hex;
+          _colorController.value = 1.0;
         });
+
+        // Atualiza o cache
+        HighlightCache.updateHighlight(_verseCacheKey!, updatedHighlight);
       }
-      
+
       // Executa a operação no banco de dados em segundo plano
       await _performDatabaseUpdate(hex, userId, existingHighlightId);
 
@@ -414,9 +558,9 @@ class _VerseActionsModalState extends State<VerseActionsModal>
       if (mounted) {
         widget.onRefresh();
         scaffold.showSnackBar(
-          const SnackBar(
-            content: Text('Versículo destacado'),
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: Text(hex.isEmpty ? 'Destaque removido' : 'Versículo destacado'),
+            duration: const Duration(seconds: 2),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -430,7 +574,9 @@ class _VerseActionsModalState extends State<VerseActionsModal>
 
   void _showError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    
+    final scaffold = ScaffoldMessenger.of(context);
+    scaffold.showSnackBar(
       SnackBar(
         content: Text(message),
         behavior: SnackBarBehavior.floating,
@@ -439,126 +585,24 @@ class _VerseActionsModalState extends State<VerseActionsModal>
     );
   }
 
-  void _copyToClipboard() {
-    Clipboard.setData(ClipboardData(text: widget.text));
-    if (mounted) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Texto copiado')),
-      );
-    }
-  }
-
-  void _shareVerse() {
-    Share.share(widget.text);
-    if (mounted) {
-      Navigator.pop(context);
-    }
-  }
-
-  Widget _buildActionTile({
-    required IconData icon,
-    required String title,
-    required VoidCallback onTap,
-  }) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(title),
-      onTap: onTap,
-    );
-  }
-
-  Widget _buildColorPalette() {
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: colors.map((hex) {
-        final isSelected = hex == _currentHighlightColor;
-        final isAnimating =
-            _colorController.status == AnimationStatus.forward &&
-                _colorAnimation.status == AnimationStatus.forward &&
-                _lastSelectedColor != _currentHighlightColor &&
-                _lastSelectedColor == hex;
-
-        return GestureDetector(
-          onTap: () => _setHighlight(hex),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            width: isSelected ? 36 : 34,
-            height: isSelected ? 36 : 34,
-            alignment: Alignment.center,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: isSelected ? 36 : 34,
-                  height: isSelected ? 36 : 34,
-                  decoration: BoxDecoration(
-                    color: _colorAnimation.status == AnimationStatus.forward &&
-                            _colorAnimation.value == _getColorFromHex(hex)
-                        ? _colorAnimation.value
-                        : _getColorFromHex(hex),
-                    shape: BoxShape.circle,
-                    border: isSelected
-                        ? Border.all(color: Colors.black38, width: 2)
-                        : null,
-                  ),
-                ),
-                if (isSelected || isAnimating)
-                  const Icon(Icons.check, color: Colors.black87, size: 20),
-                if (_isLoading && isAnimating)
-                  const SizedBox(
-                    width: 36,
-                    height: 36,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.black54),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Ações do Versículo',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 16),
-          _buildActionTile(
-            icon: Icons.copy,
-            title: 'Copiar versículo',
-            onTap: _copyToClipboard,
-          ),
-          _buildActionTile(
-            icon: Icons.share,
-            title: 'Compartilhar',
-            onTap: _shareVerse,
-          ),
-          if (_currentHighlightColor != null)
-            _buildActionTile(
-              icon: Icons.highlight_off,
-              title: 'Remover destaque',
-              onTap: _removeHighlight,
-            ),
-          const Divider(),
-          const Text('Cores de destaque:'),
-          const SizedBox(height: 8),
-          _buildColorPalette(),
-          const SizedBox(height: 16),
-        ],
+  Future<void> _copyToClipboard() async {
+    await Clipboard.setData(ClipboardData(text: widget.text));
+    if (!mounted) return;
+    
+    final scaffold = ScaffoldMessenger.of(context);
+    Navigator.pop(context);
+    scaffold.showSnackBar(
+      const SnackBar(
+        content: Text('Texto copiado'),
+        behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+
+  Future<void> _shareVerse() async {
+    await Share.share(widget.text);
+    if (mounted) {
+      Navigator.pop(context);
+    }
   }
 }

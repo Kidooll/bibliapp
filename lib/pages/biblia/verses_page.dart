@@ -31,7 +31,6 @@ class _VersesPageState extends State<VersesPage> {
   final ScrollController _scrollController = ScrollController();
   List<Map<String, dynamic>> verses = [];
   Map<int, String> highlightColors = {};
-  Set<int> favoriteVerseIds = {};
   Map<int, String> cleanTextCache = {};
   bool isLoading = true;
   String? errorMessage;
@@ -92,10 +91,13 @@ class _VersesPageState extends State<VersesPage> {
   Future<void> fetchVersesAndBookmarks() async {
     if (!mounted) return;
 
-    setState(() {
-      isLoading = true;
-      errorMessage = null;
-    });
+    // Só mostra o loading se for a primeira carga
+    if (verses.isEmpty) {
+      setState(() {
+        isLoading = true;
+        errorMessage = null;
+      });
+    }
 
     try {
       final provider = Provider.of<BibliaProvider>(context, listen: false);
@@ -140,7 +142,6 @@ class _VersesPageState extends State<VersesPage> {
       // Get bookmarks if user is logged in
       final user = supabase.auth.currentUser;
       final newColors = <int, String>{};
-      final newFavorites = <int>{};
 
       if (user != null) {
         try {
@@ -148,7 +149,7 @@ class _VersesPageState extends State<VersesPage> {
               .from('bookmarks')
               .select()
               .eq('user_id', user.id)
-              .inFilter('bookmark_type', ['highlight', 'favorite']);
+              .inFilter('bookmark_type', ['highlight']);
 
           for (final item in bookmarksResponse) {
             final List<dynamic> verseIds = item['verse_ids'] ?? [];
@@ -162,8 +163,6 @@ class _VersesPageState extends State<VersesPage> {
               if (item['bookmark_type'] == 'highlight') {
                 final color = item['highlight_color']?.toString();
                 if (color != null) newColors[id] = color;
-              } else if (item['bookmark_type'] == 'favorite') {
-                newFavorites.add(id);
               }
             }
           }
@@ -175,12 +174,14 @@ class _VersesPageState extends State<VersesPage> {
 
       if (!mounted) return;
 
-      setState(() {
-        verses = processedVerses;
-        highlightColors = newColors;
-        favoriteVerseIds = newFavorites;
-        isLoading = false;
-      });
+      // Atualiza o estado de forma otimizada
+      if (mounted) {
+        setState(() {
+          verses = processedVerses;
+          highlightColors = newColors;
+          isLoading = false;
+        });
+      }
     } catch (e) {
       debugPrint('Erro ao carregar capítulo: $e');
       if (!mounted) return;
@@ -214,7 +215,6 @@ class _VersesPageState extends State<VersesPage> {
     }
   }
 
-  // Otimiza atualização parcial
   void updateBookmark(int verseId, String type, {String? color}) {
     setState(() {
       if (type == 'highlight') {
@@ -225,17 +225,10 @@ class _VersesPageState extends State<VersesPage> {
           // Atualiza com a nova cor
           highlightColors[verseId] = color;
         }
-      } else if (type == 'favorite') {
-        if (favoriteVerseIds.contains(verseId)) {
-          favoriteVerseIds.remove(verseId);
-        } else {
-          favoriteVerseIds.add(verseId);
-        }
       }
     });
   }
 
-  // Função para voltar ao ChapterModal
   void _handleBackNavigation(BuildContext context) {
     debugPrint('🔙 Voltando da página de versículos...');
     debugPrint('🔙 Livro atual: ${widget.book.name}');
@@ -253,23 +246,59 @@ class _VersesPageState extends State<VersesPage> {
     });
   }
 
-  void _showVerseActions(Map<String, dynamic> verse) {
-    showModalBottomSheet(
+  Future<void> _showVerseActions(Map<String, dynamic> verse) async {
+    await showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
       builder: (context) => VerseActionsModal(
         verseId: verse['pk'] as int,
         text: cleanTextCache[verse['pk']] ?? cleanVerseText(verse['text']),
-        isFavorite: favoriteVerseIds.contains(verse['pk']),
         highlightColor: highlightColors[verse['pk']],
-        onRefresh: fetchVersesAndBookmarks,
+        onRefresh: () async {
+          // Força uma nova busca dos destaques
+          await fetchVersesAndBookmarks();
+          if (mounted) {
+            setState(() {});
+          }
+        },
       ),
     );
+
+    // Atualiza a UI após fechar o modal apenas se ainda estiver montado
+    if (mounted) {
+      await fetchVersesAndBookmarks();
+    }
   }
 
   void _compareVerse(int verseNumber) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Comparação em breve!')),
     );
+  }
+
+  Widget _buildVerseItem(Map<String, dynamic> verse) {
+    final verseNumber = verse['verse'] as int;
+    final verseKey = verse['pk'] as int;
+    final highlightColor = highlightColors[verseKey];
+
+    return BibleVerseTile(
+      verseText: cleanTextCache[verseKey] ?? cleanVerseText(verse['text']),
+      verseNumber: verseNumber,
+      onHighlightPressed: () => _showHighlightOptions(verseKey, highlightColor),
+      onComparePressed: () => _compareVerse(verseNumber),
+      textSize: 16.0,
+      highlightColor: highlightColor != null ? Color(int.parse(highlightColor.replaceAll('#', '0xFF'))) : null,
+    );
+  }
+
+  void _showHighlightOptions(int verseKey, String? currentColor) {
+    _showVerseActions({
+      'pk': verseKey,
+      'text': cleanTextCache[verseKey] ?? '',
+    });
   }
 
   @override
@@ -321,24 +350,7 @@ class _VersesPageState extends State<VersesPage> {
                       itemCount: verses.length,
                       itemBuilder: (context, index) {
                         final verse = verses[index];
-                        final verseId = verse['pk'] as int;
-                        final verseNumber = verse['verse'] as int;
-                        final text = cleanTextCache[verseId] ??
-                            cleanVerseText(verse['text']);
-
-                        return BibleVerseTile(
-                          verseText: text,
-                          verseNumber: verseNumber,
-                          isFavorite: favoriteVerseIds.contains(verseId),
-                          onFavoritePressed: () => _showVerseActions(verse),
-                          onComparePressed: () => _compareVerse(verseNumber),
-                          textSize: textSize,
-                          highlightColor: highlightColors.containsKey(verseId)
-                              ? Color(int.parse(
-                                  'FF${highlightColors[verseId]!.replaceAll("#", "")}',
-                                  radix: 16))
-                              : null,
-                        );
+                        return _buildVerseItem(verse);
                       },
                     ),
     );

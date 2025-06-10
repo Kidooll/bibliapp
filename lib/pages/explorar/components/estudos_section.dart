@@ -5,8 +5,6 @@ import '../../../services/study_service.dart';
 import '../../../pages/estudo_detalhes_page.dart';
 import 'todos_estudos_page.dart';
 
-
-
 class EstudosSection extends StatelessWidget {
   const EstudosSection({super.key});
 
@@ -49,7 +47,8 @@ class EstudosSection extends StatelessWidget {
                     final dataCriacao = estudo['created_at'] != null
                         ? DateTime.parse(estudo['created_at'])
                         : DateTime.now();
-                    final dataFormatada = '${dataCriacao.day}/${dataCriacao.month}/${dataCriacao.year}';
+                    final dataFormatada =
+                        '${dataCriacao.day}/${dataCriacao.month}/${dataCriacao.year}';
                     // Imagem fixa do Unsplash para todos os estudos
                     final imagem =
                         'https://images.unsplash.com/photo-1504052434569-70ad5836ab65?q=80&w=1000';
@@ -70,7 +69,6 @@ class EstudosSection extends StatelessWidget {
                                 'image': imagem,
                                 'id': estudo['id'].toString(),
                                 'type': tipo,
-                                'created_at': estudo['created_at'],
                                 'tags': estudo['tags'],
                                 'metadata': estudo['metadata'],
                               },
@@ -103,30 +101,46 @@ class EstudosSection extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 8),
-                            Text(
-                              titulo,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            Container(
+                              height: 40,
+                              child: Text(
+                                titulo,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
                             ),
                             const SizedBox(height: 4),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.green.shade100,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    tipo,
-                                    style: TextStyle(fontSize: 10, color: Colors.green.shade800),
+                                Flexible(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green.shade100,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      tipo,
+                                      style: TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.green.shade800),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
                                 ),
+                                const SizedBox(width: 4),
                                 Text(
                                   dataFormatada,
-                                  style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                                  style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey.shade600),
                                 ),
                               ],
                             ),

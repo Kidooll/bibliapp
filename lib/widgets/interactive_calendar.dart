@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:lottie/lottie.dart';
 import '../services/user_progress_service.dart';
 import '../models/devotional.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 class InteractiveCalendar extends StatefulWidget {
   final UserProgressService progressService;
@@ -26,6 +27,7 @@ class _InteractiveCalendarState extends State<InteractiveCalendar>
   late Map<DateTime, List<Devotional>> _events;
   late AnimationController _streakController;
   late Animation<double> _streakAnimation;
+  late CalendarFormat _calendarFormat;
 
   @override
   void initState() {
@@ -41,25 +43,36 @@ class _InteractiveCalendarState extends State<InteractiveCalendar>
       parent: _streakController,
       curve: Curves.easeInOut,
     );
+    _calendarFormat = CalendarFormat.month;
+    initializeDateFormatting('pt_BR', null);
     _loadEvents();
   }
 
   Future<void> _loadEvents() async {
-    final progress = await widget.progressService.getUserProgress();
-    final readDevotionals = progress['read_devotionals'] as List<dynamic>;
+    try {
+      final progress = await widget.progressService.getUserProgress();
+      final readDevotionals =
+          progress['devotionals_read'] as List<dynamic>? ?? [];
 
-    setState(() {
-      _events = {};
-      for (var devotional in readDevotionals) {
-        final date = DateTime.parse(devotional['read_at']).toLocal();
-        final dateKey = DateTime(date.year, date.month, date.day);
+      setState(() {
+        _events = {};
+        for (var devotional in readDevotionals) {
+          try {
+            final date = DateTime.parse(devotional['read_at']).toLocal();
+            final dateKey = DateTime(date.year, date.month, date.day);
 
-        if (!_events.containsKey(dateKey)) {
-          _events[dateKey] = [];
+            if (!_events.containsKey(dateKey)) {
+              _events[dateKey] = [];
+            }
+            _events[dateKey]!.add(Devotional.fromJson(devotional));
+          } catch (e) {
+            print('Erro ao processar devocional: $e');
+          }
         }
-        _events[dateKey]!.add(Devotional.fromJson(devotional));
-      }
-    });
+      });
+    } catch (e) {
+      print('Erro ao carregar eventos: $e');
+    }
   }
 
   List<Devotional> _getEventsForDay(DateTime day) {
@@ -98,11 +111,16 @@ class _InteractiveCalendarState extends State<InteractiveCalendar>
       lastDay: DateTime.utc(2025, 12, 31),
       focusedDay: _focusedDay,
       selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-      calendarFormat: CalendarFormat.month,
+      calendarFormat: _calendarFormat,
       eventLoader: _getEventsForDay,
       startingDayOfWeek: StartingDayOfWeek.monday,
+      onFormatChanged: (format) {
+        setState(() {
+          _calendarFormat = format;
+        });
+      },
       calendarStyle: CalendarStyle(
-        markersMaxCount: 1,
+        markersMaxCount: 3,
         markerDecoration: BoxDecoration(
           color: Theme.of(context).primaryColor,
           shape: BoxShape.circle,
@@ -115,6 +133,64 @@ class _InteractiveCalendarState extends State<InteractiveCalendar>
           color: Theme.of(context).primaryColor.withOpacity(0.3),
           shape: BoxShape.circle,
         ),
+        markerSize: 8,
+        markerMargin: const EdgeInsets.symmetric(horizontal: 1),
+      ),
+      headerStyle: const HeaderStyle(
+        formatButtonVisible: true,
+        titleCentered: true,
+        formatButtonShowsNext: false,
+        formatButtonDecoration: BoxDecoration(
+          color: Color(0xFF5E9EA0),
+          borderRadius: BorderRadius.all(Radius.circular(8)),
+        ),
+        formatButtonTextStyle: TextStyle(color: Colors.white),
+        titleTextStyle: TextStyle(
+          color: Color(0xFF5E9EA0),
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      calendarBuilders: CalendarBuilders(
+        dowBuilder: (context, day) {
+          if (day.weekday == DateTime.sunday) {
+            return Center(
+              child: Text(
+                'Dom',
+                style: TextStyle(color: Colors.red[300]),
+              ),
+            );
+          }
+          if (day.weekday == DateTime.saturday) {
+            return const Center(
+              child: Text(
+                'Sáb',
+                style: TextStyle(color: Colors.blue),
+              ),
+            );
+          }
+          return null;
+        },
+        markerBuilder: (context, date, events) {
+          if (events.isEmpty) return null;
+          return Positioned(
+            bottom: 1,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: events.map((event) {
+                return Container(
+                  width: 8,
+                  height: 8,
+                  margin: const EdgeInsets.symmetric(horizontal: 1),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).primaryColor,
+                    shape: BoxShape.circle,
+                  ),
+                );
+              }).toList(),
+            ),
+          );
+        },
       ),
       onDaySelected: (selectedDay, focusedDay) {
         setState(() {
@@ -126,6 +202,7 @@ class _InteractiveCalendarState extends State<InteractiveCalendar>
       onPageChanged: (focusedDay) {
         _focusedDay = focusedDay;
       },
+      locale: 'pt_BR',
     );
   }
 
@@ -137,7 +214,8 @@ class _InteractiveCalendarState extends State<InteractiveCalendar>
           return const CircularProgressIndicator();
         }
 
-        final streak = snapshot.data!['current_streak'] ?? 0;
+        final currentStreak = snapshot.data!['current_streak_days'] ?? 0;
+        final longestStreak = snapshot.data!['longest_streak_days'] ?? 0;
         _streakController.forward(from: 0);
 
         return Column(
@@ -150,10 +228,17 @@ class _InteractiveCalendarState extends State<InteractiveCalendar>
             ),
             const SizedBox(height: 8),
             Text(
-              '$streak dias seguidos!',
+              '$currentStreak dias seguidos!',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: Theme.of(context).primaryColor,
+                  ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Recorde: $longestStreak dias',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Theme.of(context).primaryColor.withOpacity(0.8),
                   ),
             ),
           ],

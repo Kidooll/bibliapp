@@ -11,6 +11,7 @@ import 'package:intl/intl.dart'; // Para formatação de datas
 import 'package:intl/date_symbol_data_local.dart';
 import '../services/user_progress_service.dart';
 import 'package:provider/provider.dart';
+import '../pages/calendario/calendario_page.dart';
 
 class UserProgressPreview extends StatefulWidget {
   const UserProgressPreview({super.key});
@@ -235,15 +236,26 @@ class _UserProgressPreviewState extends State<UserProgressPreview> {
                                     color: Colors.white.withOpacity(0.8),
                                     size: 20),
                                 const SizedBox(width: 8),
-                                Text(
-                                  'Meu Progresso',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleMedium
-                                      ?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
+                                GestureDetector(
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            const CalendarioPage(),
                                       ),
+                                    );
+                                  },
+                                  child: Text(
+                                    'Meu Progresso',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                        ),
+                                  ),
                                 ),
                                 Icon(Icons.star,
                                     color: Colors.white.withOpacity(0.8),
@@ -376,17 +388,14 @@ class _HomePageState extends State<HomePage> {
   final UnsplashService _unsplashService = UnsplashService();
   late Future<Map<String, dynamic>?> _devotionalFuture;
   late Future<String> _imageFuture;
-  // ignore: unused_field, prefer_final_fields
   DateTime _selectedDate = DateTime.now();
-
-  // Lista de dias para o calendário
   late List<DateTime> _calendarDays;
+  bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    initializeDateFormatting(
-        'pt_BR', null); // Inicializa a formatação de data para português
+    initializeDateFormatting('pt_BR', null);
     _devotionalFuture = _devotionalService.getDailyDevotional();
     _imageFuture = _unsplashService.getRandomImage();
     _initCalendarDays();
@@ -1053,11 +1062,30 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Future<void> _refreshProgress() async {
+    if (_isLoading) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final userProgressService =
+          Provider.of<UserProgressService>(context, listen: false);
+      await userProgressService.getUserProgress();
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF0F7F7), // Fundo azul clarinho
-      body: SafeArea(
+      body: RefreshIndicator(
+        onRefresh: _refreshProgress,
         child: FutureBuilder<Map<String, dynamic>?>(
           future: _devotionalFuture,
           builder: (context, devotionalSnapshot) {

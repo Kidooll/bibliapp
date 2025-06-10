@@ -44,33 +44,52 @@ class UserProgressService extends ChangeNotifier {
     }
 
     try {
-      // 1. Verifica se o devocional já foi lido
+      // 1. Verifica se o devocional já foi lido hoje
+      final today = DateTime.now();
+      final startOfDay = DateTime(today.year, today.month, today.day);
+      final endOfDay = startOfDay.add(const Duration(days: 1));
+
       final existingRead = await _client
+          .from('read_devotionals')
+          .select()
+          .eq('user_profile_id', userProfileId)
+          .eq('devotional_id', devotionalId)
+          .gte('read_at', startOfDay.toIso8601String())
+          .lt('read_at', endOfDay.toIso8601String())
+          .maybeSingle();
+
+      if (existingRead != null) {
+        print('Devocional já foi lido hoje');
+        return; // Não faz nada se já leu hoje
+      }
+
+      // 2. Verifica se já leu este devocional em qualquer dia
+      final anyExistingRead = await _client
           .from('read_devotionals')
           .select()
           .eq('user_profile_id', userProfileId)
           .eq('devotional_id', devotionalId)
           .maybeSingle();
 
-      if (existingRead == null) {
-        // Se não foi lido, insere novo registro
-        await _client.from('read_devotionals').insert({
-          'user_profile_id': userProfileId,
-          'devotional_id': devotionalId,
-          'read_at': DateTime.now().toIso8601String(),
-        });
-        print('Novo registro de leitura inserido');
-      } else {
+      if (anyExistingRead != null) {
         print('Devocional já foi lido anteriormente');
+        return; // Não faz nada se já leu antes
       }
 
-      // 2. Atualiza o perfil do usuário
+      // 3. Se não leu, insere novo registro
+      await _client.from('read_devotionals').insert({
+        'user_profile_id': userProfileId,
+        'devotional_id': devotionalId,
+        'read_at': DateTime.now().toIso8601String(),
+      });
+
+      // 4. Atualiza o perfil do usuário
       await _updateUserProfile(userProfileId, devotionalId);
 
-      // 3. Atualiza a sequência de leitura
+      // 5. Atualiza a sequência de leitura
       await _updateReadingStreak(userProfileId);
 
-      // 4. Limpa o cache para forçar atualização
+      // 6. Limpa o cache e notifica
       _clearCache();
       notifyListeners();
     } catch (e) {
@@ -107,8 +126,13 @@ class UserProgressService extends ChangeNotifier {
     final user = _client.auth.currentUser;
     if (user == null) return _getDefaultProgress();
 
-    // Limpa o cache para forçar a busca de dados frescos
-    _clearCache();
+    // Verifica se o cache ainda é válido
+    if (_cachedProgress != null && _lastFetchTime != null) {
+      final now = DateTime.now();
+      if (now.difference(_lastFetchTime!) < _cacheDuration) {
+        return _cachedProgress!;
+      }
+    }
 
     try {
       // 1. Obtém o perfil completo do usuário para username e outros campos
@@ -118,7 +142,7 @@ class UserProgressService extends ChangeNotifier {
           .eq('id', user.id)
           .maybeSingle();
 
-      String username = 'Usuário'; // Valor padrão
+      String username = 'Usuário';
       if (userProfileResponse != null) {
         username = userProfileResponse['username'] as String? ?? 'Usuário';
       }
@@ -131,26 +155,26 @@ class UserProgressService extends ChangeNotifier {
       if (readingStatsResponse is List && readingStatsResponse.isNotEmpty) {
         progressData = Map<String, dynamic>.from(readingStatsResponse.first);
       } else {
-        // Se não houver dados de stats, cria um perfil inicial (se ainda não existir)
         await _createInitialProfile(user.id);
         progressData = _getDefaultProgress();
       }
 
-      // Combina os dados e garante que todos os campos esperados estejam presentes
+      // Combina os dados
       final combinedProgress = {
-        'username': username, // Adiciona o username
+        'username': username,
         'total_devotionals_read':
             _safeToInt(progressData['total_devotionals_read']),
         'current_streak_days': _safeToInt(progressData['current_streak_days']),
         'longest_streak_days': _safeToInt(progressData['longest_streak_days']),
         'weekly_goal':
             _safeToInt(progressData['weekly_goal'], defaultValue: _weeklyGoal),
-        'weekly_progress': _safeToInt(progressData[
-            'weekly_progress']), // Garante que weekly_progress está lá
+        'weekly_progress': _safeToInt(progressData['weekly_progress']),
+        'devotionals_read': progressData['devotionals_read'] ?? [],
       };
 
       _cachedProgress = combinedProgress;
       _lastFetchTime = DateTime.now();
+
       return _cachedProgress!;
     } catch (e) {
       print('Erro ao buscar progresso: $e');
@@ -321,62 +345,52 @@ class UserProgressService extends ChangeNotifier {
     }
   }
 
-  // Atualiza a sequência de leitura do usuário
+  // Atualiza a sequência de leitura
   Future<void> _updateReadingStreak(String userProfileId) async {
     try {
-      final now = DateTime.now();
-      final yesterday = now.subtract(const Duration(days: 1));
-      final yesterdayStr = yesterday.toIso8601String().split('T')[0];
-
-      // Verifica se leu algum devocional ontem
-      final yesterdayRead = await _client
+      // 1. Obtém a data da última leitura
+      final lastReadResponse = await _client
           .from('read_devotionals')
-          .select()
+          .select('read_at')
           .eq('user_profile_id', userProfileId)
-          .gte('read_at', yesterdayStr)
-          .lt('read_at', now.toIso8601String().split('T')[0])
+          .order('read_at', ascending: false)
+          .limit(1)
           .maybeSingle();
 
-      final streak = await _client
-          .from('reading_streaks')
-          .select()
-          .eq('user_profile_id', userProfileId)
-          .maybeSingle();
+      if (lastReadResponse == null) return;
 
-      if (streak == null) {
-        // Cria nova sequência
-        await _client.from('reading_streaks').insert({
-          'user_profile_id': userProfileId,
-          'current_streak_days': 1,
-          'longest_streak_days': 1,
-          'last_active_date': now.toIso8601String().split('T')[0],
-          'created_at': now.toIso8601String(),
-        });
-      } else {
-        final currentStreak = _safeToInt(streak['current_streak_days']);
-        final longestStreak = _safeToInt(streak['longest_streak_days']);
-        final lastActive = DateTime.parse(streak['last_active_date']);
+      final lastReadDate = DateTime.parse(lastReadResponse['read_at']);
+      final today = DateTime.now();
+      final yesterday = today.subtract(const Duration(days: 1));
 
-        if (yesterdayRead != null || lastActive.isAtSameMomentAs(yesterday)) {
-          // Incrementa a sequência atual
-          final newStreak = currentStreak + 1;
-          await _client.from('reading_streaks').update({
-            'current_streak_days': newStreak,
-            'longest_streak_days':
-                newStreak > longestStreak ? newStreak : longestStreak,
-            'last_active_date': now.toIso8601String().split('T')[0],
-          }).eq('user_profile_id', userProfileId);
-        } else {
-          // Reinicia a sequência
-          await _client.from('reading_streaks').update({
-            'current_streak_days': 1,
-            'last_active_date': now.toIso8601String().split('T')[0],
-          }).eq('user_profile_id', userProfileId);
-        }
+      // 2. Verifica se a última leitura foi hoje ou ontem
+      final isConsecutive = lastReadDate.year == today.year &&
+              lastReadDate.month == today.month &&
+              lastReadDate.day == today.day ||
+          lastReadDate.year == yesterday.year &&
+              lastReadDate.month == yesterday.month &&
+              lastReadDate.day == yesterday.day;
+
+      if (!isConsecutive) {
+        // Se não for consecutivo, reseta a sequência atual
+        await _client
+            .from('user_profiles')
+            .update({'current_streak_days': 0}).eq('id', userProfileId);
+        return;
       }
+
+      // 3. Atualiza a sequência atual
+      final currentStreak = await _getCurrentStreak(userProfileId);
+      final newStreak = currentStreak + 1;
+
+      // 4. Atualiza o perfil com a nova sequência
+      await _client.from('user_profiles').update({
+        'current_streak_days': newStreak,
+        'longest_streak_days':
+            newStreak > currentStreak ? newStreak : currentStreak,
+      }).eq('id', userProfileId);
     } catch (e) {
       print('Erro ao atualizar sequência de leitura: $e');
-      rethrow;
     }
   }
 

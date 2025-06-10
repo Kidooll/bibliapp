@@ -9,8 +9,6 @@ class DevotionalContentService {
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
 
-      print('Buscando devocional para a data: ${today.toIso8601String()}');
-
       final response = await _client
           .from('devotionals')
           .select()
@@ -20,15 +18,11 @@ class DevotionalContentService {
           .maybeSingle();
 
       if (response != null) {
-        print('Devocional encontrado: ${response['id']}');
-        print('Dados completos do devocional: $response');
         return Map<String, dynamic>.from(response);
       }
-      print('Nenhum devocional encontrado para hoje');
       return null;
     } catch (e) {
-      print('Erro ao buscar devocional diário: $e');
-      print('Stack trace: ${StackTrace.current}');
+      print('Error fetching daily devotional: $e');
       return null;
     }
   }

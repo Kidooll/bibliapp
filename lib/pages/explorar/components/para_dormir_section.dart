@@ -11,7 +11,7 @@ class ParaDormirSection extends StatelessWidget {
     final audioItems = [
       {
         'title': 'JÓ AO SOM DE CHUVA',
-        'image': 'assets/images/jo.jpg',
+        'image': 'assets/images/JO.jpg',
         'audioUrl':
             'https://drive.google.com/file/d/1XW55id4UuI90pSLNq6cdQ2s7I2h_npsT/view?usp=sharing',
       },

@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 
-class UserProgressService {
+class UserProgressService extends ChangeNotifier {
   final _client = Supabase.instance.client;
   static const _weeklyGoal = 7; // Meta semanal padrão
 
@@ -36,50 +37,68 @@ class UserProgressService {
   static const _cacheDuration = Duration(minutes: 5);
 
   // Atualiza o progresso do usuário quando um devocional é lido
-  Future<void> updateDevotionalRead(String devotionalId) async {
-    final user = _client.auth.currentUser;
-    if (user == null) return;
+  Future<void> updateDevotionalRead(int devotionalId) async {
+    final userProfileId = _client.auth.currentUser?.id;
+    if (userProfileId == null) {
+      throw Exception('Usuário não autenticado');
+    }
 
     try {
-      // Insere o registro de leitura - o trigger cuidará do resto
-      await _client.from('read_devotionals').insert({
-        'user_id': user.id,
-        'devotional_id': devotionalId,
-        'read_at': DateTime.now().toIso8601String(),
-      });
+      // 1. Verifica se o devocional já foi lido
+      final existingRead = await _client
+          .from('read_devotionals')
+          .select()
+          .eq('user_profile_id', userProfileId)
+          .eq('devotional_id', devotionalId)
+          .maybeSingle();
 
-      // Limpa o cache após atualização
-      _clearCache();
-    } catch (e) {
-      print('Erro ao atualizar progresso: $e');
-      // Se já existir um registro, não faz nada (idempotência)
-      if (!e.toString().contains('duplicate key') &&
-          !e.toString().contains('23505')) {
-        rethrow;
+      if (existingRead == null) {
+        // Se não foi lido, insere novo registro
+        await _client.from('read_devotionals').insert({
+          'user_profile_id': userProfileId,
+          'devotional_id': devotionalId,
+          'read_at': DateTime.now().toIso8601String(),
+        });
+        print('Novo registro de leitura inserido');
+      } else {
+        print('Devocional já foi lido anteriormente');
       }
+
+      // 2. Atualiza o perfil do usuário
+      await _updateUserProfile(userProfileId, devotionalId);
+
+      // 3. Atualiza a sequência de leitura
+      await _updateReadingStreak(userProfileId);
+
+      // 4. Limpa o cache para forçar atualização
+      _clearCache();
+      notifyListeners();
+    } catch (e) {
+      print('Erro ao atualizar leitura do devocional: $e');
+      throw Exception('Erro ao atualizar leitura do devocional: $e');
     }
   }
 
   // Método de fallback caso a função RPC não esteja disponível
   Future<void> _fallbackUpdateDevotionalRead(
-      String userId, String devotionalId) async {
+      String userProfileId, int devotionalId) async {
     // Verifica se já leu este devocional
     final existing = await _client
         .from('read_devotionals')
         .select()
-        .eq('user_id', userId)
+        .eq('user_profile_id', userProfileId)
         .eq('devotional_id', devotionalId);
 
     if (existing.isEmpty) {
       // Adiciona à lista de lidos
       await _client.from('read_devotionals').insert({
-        'user_id': userId,
+        'user_profile_id': userProfileId,
         'devotional_id': devotionalId,
         'read_at': DateTime.now().toIso8601String(),
       });
 
       // Atualiza o perfil do usuário
-      await _updateUserProfile(userId);
+      await _updateUserProfile(userProfileId, devotionalId);
     }
   }
 
@@ -88,24 +107,49 @@ class UserProgressService {
     final user = _client.auth.currentUser;
     if (user == null) return _getDefaultProgress();
 
-    // Retorna dados em cache se ainda forem válidos
-    if (_isCacheValid()) {
-      return _cachedProgress!;
-    }
+    // Limpa o cache para forçar a busca de dados frescos
+    _clearCache();
 
     try {
-      // Usa a função RPC get_reading_stats
-      final response = await _client
-          .rpc('get_reading_stats', params: {'p_user_id': user.id});
+      // 1. Obtém o perfil completo do usuário para username e outros campos
+      final userProfileResponse = await _client
+          .from('user_profiles')
+          .select()
+          .eq('id', user.id)
+          .maybeSingle();
 
-      if (response is List && response.isNotEmpty) {
-        _cachedProgress = Map<String, dynamic>.from(response.first);
-      } else {
-        // Se não houver dados, cria um perfil inicial
-        await _createInitialProfile(user.id);
-        _cachedProgress = _getDefaultProgress();
+      String username = 'Usuário'; // Valor padrão
+      if (userProfileResponse != null) {
+        username = userProfileResponse['username'] as String? ?? 'Usuário';
       }
 
+      // 2. Obtém os dados de leitura e streaks
+      final readingStatsResponse = await _client
+          .rpc('get_reading_stats', params: {'p_user_profile_id': user.id});
+
+      Map<String, dynamic> progressData = {};
+      if (readingStatsResponse is List && readingStatsResponse.isNotEmpty) {
+        progressData = Map<String, dynamic>.from(readingStatsResponse.first);
+      } else {
+        // Se não houver dados de stats, cria um perfil inicial (se ainda não existir)
+        await _createInitialProfile(user.id);
+        progressData = _getDefaultProgress();
+      }
+
+      // Combina os dados e garante que todos os campos esperados estejam presentes
+      final combinedProgress = {
+        'username': username, // Adiciona o username
+        'total_devotionals_read':
+            _safeToInt(progressData['total_devotionals_read']),
+        'current_streak_days': _safeToInt(progressData['current_streak_days']),
+        'longest_streak_days': _safeToInt(progressData['longest_streak_days']),
+        'weekly_goal':
+            _safeToInt(progressData['weekly_goal'], defaultValue: _weeklyGoal),
+        'weekly_progress': _safeToInt(progressData[
+            'weekly_progress']), // Garante que weekly_progress está lá
+      };
+
+      _cachedProgress = combinedProgress;
       _lastFetchTime = DateTime.now();
       return _cachedProgress!;
     } catch (e) {
@@ -115,10 +159,10 @@ class UserProgressService {
   }
 
   // Método para criar perfil inicial do usuário
-  Future<void> _createInitialProfile(String userId) async {
+  Future<void> _createInitialProfile(String userProfileId) async {
     try {
       await _client.from('user_profiles').insert({
-        'user_id': userId,
+        'id': userProfileId,
         'total_devotionals_read': 0,
         'current_streak_days': 0,
         'longest_streak_days': 0,
@@ -137,13 +181,14 @@ class UserProgressService {
   }
 
   // Método de fallback para obter o progresso do usuário
-  Future<Map<String, dynamic>> _fallbackGetUserProgress(String userId) async {
+  Future<Map<String, dynamic>> _fallbackGetUserProgress(
+      String userProfileId) async {
     try {
       // Obtém o perfil do usuário
       final profileResponse = await _client
           .from('user_profiles')
           .select()
-          .eq('user_id', userId)
+          .eq('id', userProfileId)
           .single();
 
       final profile = profileResponse;
@@ -156,11 +201,11 @@ class UserProgressService {
       final response = await _client
           .from('read_devotionals')
           .select()
-          .eq('user_id', userId)
+          .eq('user_profile_id', userProfileId)
           .gte('read_at', weekAgo.toIso8601String());
 
       // Obtém a sequência atual
-      final currentStreak = await _getCurrentStreak(userId);
+      final currentStreak = await _getCurrentStreak(userProfileId);
 
       // Calcula o progresso semanal
       int weeklyProgress = 0;
@@ -183,23 +228,11 @@ class UserProgressService {
 
       // Ensure all values are properly converted to int
       final progress = {
-        'total_devotionals_read': (profile['total_devotionals_read'] is int)
-            ? profile['total_devotionals_read'] as int
-            : int.tryParse(
-                    profile['total_devotionals_read']?.toString() ?? '0') ??
-                0,
-        'current_streak_days': currentStreak is int
-            ? currentStreak
-            : int.tryParse(currentStreak.toString()) ?? 0,
-        'longest_streak_days': (profile['longest_streak_days'] is int)
-            ? profile['longest_streak_days'] as int
-            : int.tryParse(profile['longest_streak_days']?.toString() ?? '0') ??
-                0,
-        'weekly_goal': (profile['weekly_goal'] is int)
-            ? profile['weekly_goal'] as int
-            : int.tryParse(profile['weekly_goal']?.toString() ??
-                    _weeklyGoal.toString()) ??
-                _weeklyGoal,
+        'total_devotionals_read': _safeToInt(profile['total_devotionals_read']),
+        'current_streak_days': _safeToInt(currentStreak),
+        'longest_streak_days': _safeToInt(profile['longest_streak_days']),
+        'weekly_goal':
+            _safeToInt(profile['weekly_goal'], defaultValue: _weeklyGoal),
         'weekly_progress': weeklyProgress,
       };
 
@@ -213,23 +246,158 @@ class UserProgressService {
     }
   }
 
+  // Atualiza o perfil do usuário após ler um devocional
+  Future<void> _updateUserProfile(
+      String userProfileId, int devotionalId) async {
+    try {
+      // 1. Verifica se o devocional já foi lido
+      final existingRead = await _client
+          .from('read_devotionals')
+          .select()
+          .eq('user_profile_id', userProfileId)
+          .eq('devotional_id', devotionalId)
+          .maybeSingle();
+
+      // Se o devocional já foi lido, não incrementa o contador
+      if (existingRead != null) {
+        print(
+            'Devocional já foi lido anteriormente, não incrementando contador');
+        return;
+      }
+
+      // 2. Atualiza o total de devocionais lidos
+      final profile = await _client
+          .from('user_profiles')
+          .select('total_devotionals_read')
+          .eq('id', userProfileId)
+          .single();
+
+      final currentTotal = _safeToInt(profile['total_devotionals_read']);
+      await _client.from('user_profiles').update(
+          {'total_devotionals_read': currentTotal + 1}).eq('id', userProfileId);
+
+      // 3. Atualiza o progresso semanal
+      final now = DateTime.now();
+      // Calcula o início da semana (segunda-feira)
+      final int daysToSubtract = now.weekday == 7 ? 6 : now.weekday - 1;
+      final startOfWeek = now.subtract(Duration(days: daysToSubtract));
+      final startOfWeekStr =
+          DateTime(startOfWeek.year, startOfWeek.month, startOfWeek.day)
+              .toIso8601String()
+              .split('T')[0];
+
+      final weeklyProgress = await _client
+          .from('weekly_progress')
+          .select('devotionals_read_this_week')
+          .eq('user_profile_id', userProfileId)
+          .eq('week_start_date', startOfWeekStr)
+          .maybeSingle();
+
+      if (weeklyProgress != null) {
+        final currentWeeklyCount =
+            _safeToInt(weeklyProgress['devotionals_read_this_week']);
+        await _client
+            .from('weekly_progress')
+            .update({
+              'devotionals_read_this_week': currentWeeklyCount + 1,
+              'updated_at': DateTime.now().toIso8601String()
+            })
+            .eq('user_profile_id', userProfileId)
+            .eq('week_start_date', startOfWeekStr);
+        print('Progresso semanal atualizado para: ${currentWeeklyCount + 1}');
+      } else {
+        await _client.from('weekly_progress').insert({
+          'user_profile_id': userProfileId,
+          'week_start_date': startOfWeekStr,
+          'devotionals_read_this_week': 1,
+          'created_at': DateTime.now().toIso8601String(),
+          'updated_at': DateTime.now().toIso8601String()
+        });
+        print('Novo progresso semanal criado');
+      }
+    } catch (e) {
+      print('Erro ao atualizar perfil do usuário: $e');
+      throw Exception('Erro ao atualizar perfil do usuário: $e');
+    }
+  }
+
+  // Atualiza a sequência de leitura do usuário
+  Future<void> _updateReadingStreak(String userProfileId) async {
+    try {
+      final now = DateTime.now();
+      final yesterday = now.subtract(const Duration(days: 1));
+      final yesterdayStr = yesterday.toIso8601String().split('T')[0];
+
+      // Verifica se leu algum devocional ontem
+      final yesterdayRead = await _client
+          .from('read_devotionals')
+          .select()
+          .eq('user_profile_id', userProfileId)
+          .gte('read_at', yesterdayStr)
+          .lt('read_at', now.toIso8601String().split('T')[0])
+          .maybeSingle();
+
+      final streak = await _client
+          .from('reading_streaks')
+          .select()
+          .eq('user_profile_id', userProfileId)
+          .maybeSingle();
+
+      if (streak == null) {
+        // Cria nova sequência
+        await _client.from('reading_streaks').insert({
+          'user_profile_id': userProfileId,
+          'current_streak_days': 1,
+          'longest_streak_days': 1,
+          'last_active_date': now.toIso8601String().split('T')[0],
+          'created_at': now.toIso8601String(),
+        });
+      } else {
+        final currentStreak = _safeToInt(streak['current_streak_days']);
+        final longestStreak = _safeToInt(streak['longest_streak_days']);
+        final lastActive = DateTime.parse(streak['last_active_date']);
+
+        if (yesterdayRead != null || lastActive.isAtSameMomentAs(yesterday)) {
+          // Incrementa a sequência atual
+          final newStreak = currentStreak + 1;
+          await _client.from('reading_streaks').update({
+            'current_streak_days': newStreak,
+            'longest_streak_days':
+                newStreak > longestStreak ? newStreak : longestStreak,
+            'last_active_date': now.toIso8601String().split('T')[0],
+          }).eq('user_profile_id', userProfileId);
+        } else {
+          // Reinicia a sequência
+          await _client.from('reading_streaks').update({
+            'current_streak_days': 1,
+            'last_active_date': now.toIso8601String().split('T')[0],
+          }).eq('user_profile_id', userProfileId);
+        }
+      }
+    } catch (e) {
+      print('Erro ao atualizar sequência de leitura: $e');
+      rethrow;
+    }
+  }
+
   // Obtém a sequência atual de leitura
-  Future<int> _getCurrentStreak(String userId) async {
-    if (userId.isEmpty) {
+  Future<int> _getCurrentStreak(String userProfileId) async {
+    if (userProfileId.isEmpty) {
       throw ArgumentError('User ID cannot be empty');
     }
 
     try {
       final response = await _client
           .from('reading_streaks')
-          .select()
-          .eq('user_id', userId)
-          .eq('is_current', true)
-          .single();
+          .select('current_streak_days')
+          .eq('user_profile_id', userProfileId)
+          .order('last_active_date', ascending: false)
+          .limit(1)
+          .maybeSingle();
 
       if (response == null) return 0;
 
-      final streakDays = response['streak_days'];
+      final streakDays = response['current_streak_days'];
       if (streakDays is int) {
         return streakDays;
       } else if (streakDays is String) {
@@ -245,6 +413,39 @@ class UserProgressService {
     }
   }
 
+  // Obtém a maior sequência de leitura
+  Future<int> _getLongestStreak(String userProfileId) async {
+    if (userProfileId.isEmpty) {
+      throw ArgumentError('User ID cannot be empty');
+    }
+
+    try {
+      final response = await _client
+          .from('reading_streaks')
+          .select('longest_streak_days')
+          .eq('user_profile_id', userProfileId)
+          .order('longest_streak_days', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (response == null) return 0;
+
+      final streakDays = response['longest_streak_days'];
+      if (streakDays is int) {
+        return streakDays;
+      } else if (streakDays is String) {
+        return int.tryParse(streakDays) ?? 0;
+      } else if (streakDays is num) {
+        return streakDays.toInt();
+      } else {
+        return 0;
+      }
+    } catch (e) {
+      print('Erro ao obter maior sequência: $e');
+      return 0;
+    }
+  }
+
   // Retorna um progresso padrão em caso de erro
   Map<String, dynamic> _getDefaultProgress() {
     return {
@@ -253,144 +454,8 @@ class UserProgressService {
       'longest_streak_days': 0,
       'weekly_goal': _weeklyGoal,
       'weekly_progress': 0,
+      'username': 'Visitante',
     };
-  }
-
-  // Atualiza o perfil do usuário após ler um devocional
-  Future<void> _updateUserProfile(String userId) async {
-    if (userId.isEmpty) {
-      throw ArgumentError('User ID cannot be empty');
-    }
-
-    try {
-      final now = DateTime.now().toLocal();
-
-      // Obtém o total de devocionais lidos
-      final response =
-          await _client.from('read_devotionals').select().eq('user_id', userId);
-
-      int totalRead = 0;
-      if (response is List) {
-        totalRead = response.length;
-      }
-
-      // Obtém a sequência atual
-      final currentStreak = await _getCurrentStreak(userId);
-
-      // Verifica se o perfil existe
-      final profileResponse =
-          await _client.from('user_profiles').select().eq('user_id', userId);
-
-      final Map<String, dynamic> profileData = {
-        'total_devotionals_read': totalRead,
-        'current_streak_days': currentStreak,
-        'last_read_at': now.toIso8601String(),
-        'last_active_date': now.toIso8601String(),
-        'updated_at': now.toIso8601String(),
-      };
-
-      if (profileResponse.isEmpty) {
-        // Cria novo perfil
-        await _client.from('user_profiles').insert({
-          ...profileData,
-          'user_id': userId,
-          'longest_streak_days': currentStreak,
-          'created_at': now.toIso8601String(),
-          'weekly_goal': _weeklyGoal,
-        });
-      } else {
-        // Atualiza perfil existente
-        final profile = profileResponse.first;
-        final longestStreak = _safeToInt(profile['longest_streak_days']);
-
-        // Atualiza o recorde se necessário
-        if (currentStreak > longestStreak) {
-          profileData['longest_streak_days'] = currentStreak;
-        } else {
-          profileData['longest_streak_days'] = longestStreak;
-        }
-
-        await _client
-            .from('user_profiles')
-            .update(profileData)
-            .eq('user_id', userId);
-      }
-
-      // Limpa o cache após atualização
-      _clearCache();
-    } catch (e) {
-      print('Erro ao atualizar perfil do usuário: $e');
-      rethrow;
-    }
-  }
-
-  // Atualiza a sequência de leitura do usuário
-  Future<void> _updateReadingStreak(String userId, DateTime readDate) async {
-    try {
-      // Obtém a sequência atual
-      final currentStreakResponse = await _client
-          .from('reading_streaks')
-          .select()
-          .eq('user_id', userId)
-          .eq('is_current', true);
-
-      final readDateOnly =
-          DateTime(readDate.year, readDate.month, readDate.day);
-
-      if (currentStreakResponse.isEmpty) {
-        // Primeira leitura - cria uma nova sequência
-        await _client.from('reading_streaks').insert({
-          'user_id': userId,
-          'start_date': readDateOnly.toIso8601String(),
-          'end_date': readDateOnly.toIso8601String(),
-          'is_current': true,
-          'streak_days': 1,
-        });
-      } else {
-        final currentStreak = currentStreakResponse.first;
-        final lastReadDate = DateTime.parse(currentStreak['end_date']);
-        final daysSinceLastRead = readDateOnly.difference(lastReadDate).inDays;
-
-        if (daysSinceLastRead == 0) {
-          // Já leu hoje, não faz nada
-          return;
-        } else if (daysSinceLastRead == 1) {
-          // Leitura consecutiva - atualiza a sequência atual
-          await _client.from('reading_streaks').update({
-            'end_date': readDateOnly.toIso8601String(),
-            'streak_days': (currentStreak['streak_days'] as int) + 1,
-            'updated_at': DateTime.now().toIso8601String(),
-          }).eq('id', currentStreak['id']);
-
-          // Atualiza o recorde se necessário
-          if ((currentStreak['streak_days'] as int) + 1 >
-              (currentStreak['longest_streak_days'] as int)) {
-            await _client.from('user_profiles').update({
-              'longest_streak_days': (currentStreak['streak_days'] as int) + 1,
-              'updated_at': DateTime.now().toIso8601String(),
-            }).eq('user_id', userId);
-          }
-        } else if (daysSinceLastRead > 1) {
-          // Quebrou a sequência - marca a atual como inativa e cria uma nova
-          await _client.from('reading_streaks').update({
-            'is_current': false,
-            'updated_at': DateTime.now().toIso8601String(),
-          }).eq('id', currentStreak['id']);
-
-          // Cria uma nova sequência
-          await _client.from('reading_streaks').insert({
-            'user_id': userId,
-            'start_date': readDateOnly.toIso8601String(),
-            'end_date': readDateOnly.toIso8601String(),
-            'is_current': true,
-            'streak_days': 1,
-          });
-        }
-      }
-    } catch (e) {
-      print('Erro ao atualizar sequência de leitura: $e');
-      rethrow;
-    }
   }
 
   // Atualiza a meta semanal do usuário
@@ -522,9 +587,9 @@ class UserProgressService {
 
   // Insere a leitura diretamente na tabela
   Future<void> _insertDevotionalReadDirectly(
-      String userId, String devotionalId) async {
+      String userProfileId, String devotionalId) async {
     await _client.from('read_devotionals').insert({
-      'user_id': userId,
+      'user_profile_id': userProfileId,
       'devotional_id': devotionalId,
       'read_at': DateTime.now().toIso8601String(),
     });

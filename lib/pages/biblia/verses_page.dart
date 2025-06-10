@@ -148,7 +148,7 @@ class _VersesPageState extends State<VersesPage> {
           final bookmarksResponse = await supabase
               .from('bookmarks')
               .select()
-              .eq('user_id', user.id)
+              .eq('user_profile_id', user.id)
               .inFilter('bookmark_type', ['highlight']);
 
           for (final item in bookmarksResponse) {
@@ -198,7 +198,7 @@ class _VersesPageState extends State<VersesPage> {
     final user = supabase.auth.currentUser;
     if (user == null) return;
     try {
-      await supabase.from('bookmarks').delete().eq('user_id', user.id);
+      await supabase.from('bookmarks').delete().eq('user_profile_id', user.id);
       debugPrint('Todos os bookmarks do usuário foram removidos.');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

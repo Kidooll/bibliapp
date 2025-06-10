@@ -1,10 +1,10 @@
 name: bibliapp
 description: "A new Flutter project."
 publish_to: 'none'
-version: 0.1.0
+version: 1.0.0+1
 
 environment:
-  sdk: ^3.6.1
+  sdk: '>=3.2.3 <4.0.0'
 
 dependencies:
   flutter:
@@ -24,23 +24,21 @@ dependencies:
   flutter_staggered_animations: ^1.1.0
   flutter_html: ^3.0.0-alpha.6
   html: ^0.15.6
-  firebase_database: ^10.4.0
-  firebase_core: ^2.24.2
-  cloud_firestore: ^4.14.0
   flutter_tts: ^3.6.3
-  table_calendar: ^3.0.9 
-  firebase_auth: ^4.16.0
+  table_calendar: ^3.0.9
   google_sign_in: ^6.2.1
-  supabase_flutter: ^2.1.0
+  supabase_flutter: ^2.3.4
   just_audio: ^0.9.35
   just_audio_background: ^0.0.1-beta.11
   percent_indicator: ^4.2.2
-
+  cupertino_icons: ^1.0.2
+  flutter_secure_storage: ^9.0.0
+  lottie: ^3.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: ^2.0.0
   test: ^1.25.15
 
 flutter:
@@ -62,4 +60,6 @@ flutter:
     - assets/images/parabolas.png
     - assets/images/proverbios.png
     - assets/images/eclesiastes.png
+    - assets/animations/
+    - assets/images/
   uses-material-design: true

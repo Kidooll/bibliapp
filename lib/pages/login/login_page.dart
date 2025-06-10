@@ -28,7 +28,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> loginWithEmail() async {
     try {
       final authService = context.read<AuthService>();
-      await authService.signInWithEmail(
+      await authService.signIn(
         emailController.text.trim(),
         passwordController.text.trim(),
       );

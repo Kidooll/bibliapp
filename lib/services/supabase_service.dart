@@ -8,7 +8,7 @@ class SupabaseService {
     if (userId == null) return;
 
     await _client.from('user_favorite_devotionals').upsert({
-      'user_id': userId,
+      'user_profile_id': userId,
       'devotional_id': devotionalId,
       'favorited_at': DateTime.now().toIso8601String(),
     });
@@ -21,7 +21,7 @@ class SupabaseService {
     await _client
         .from('user_favorite_devotionals')
         .delete()
-        .match({'user_id': userId, 'devotional_id': devotionalId});
+        .match({'user_profile_id': userId, 'devotional_id': devotionalId});
   }
 
   Future<List<String>> listarFavoritos() async {
@@ -31,7 +31,7 @@ class SupabaseService {
     final res = await _client
         .from('user_favorite_devotionals')
         .select('devotional_id')
-        .eq('user_id', userId);
+        .eq('user_profile_id', userId);
 
     return List<String>.from(res.map((e) => e['devotional_id']));
   }
@@ -43,7 +43,7 @@ class SupabaseService {
     final response = await _client
         .from('bookmarks')
         .select()
-        .eq('user_id', userId)
+        .eq('user_profile_id', userId)
         .eq('bookmark_type', 'note')
         .order('created_at', ascending: false);
 
@@ -60,7 +60,7 @@ class SupabaseService {
     if (userId == null) return;
 
     final data = <String, dynamic>{
-      'user_id': userId,
+      'user_profile_id': userId,
       'bookmark_type': 'note',
       'note_text': noteText,
       'highlight_color': highlightColor.isNotEmpty ? highlightColor : null,
@@ -91,7 +91,7 @@ class SupabaseService {
 
     await _client.from('bookmarks').delete().match({
       'id': noteId,
-      'user_id': userId,
+      'user_profile_id': userId,
     });
   }
 }

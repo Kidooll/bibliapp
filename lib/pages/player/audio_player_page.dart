@@ -45,14 +45,14 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
     // Adicionar cache
     await _player.setAudioSource(
       ConcatenatingAudioSource(
-        children: widget.playlist.map((item) => 
-          AudioSource.uri(Uri.parse(_convertGoogleDriveLink(item['audioUrl']!)),
-          tag: MediaItem(
-            id: item['audioUrl']!,
-            title: item['title'] ?? '',
-            artUri: Uri.parse(item['image'] ?? '')
-          )
-        )).toList(),
+        children: widget.playlist
+            .map((item) => AudioSource.uri(
+                Uri.parse(_convertGoogleDriveLink(item['audioUrl']!)),
+                tag: MediaItem(
+                    id: item['audioUrl']!,
+                    title: item['title'] ?? '',
+                    artUri: Uri.parse(item['image'] ?? ''))))
+            .toList(),
       ),
       initialIndex: _currentIndex,
     );
@@ -112,7 +112,7 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
     final response = await supabase
         .from('user_favorite_audios')
         .select()
-        .eq('user_id', user.id)
+        .eq('user_profile_id', user.id)
         .eq('audio_id', _currentAudio['audioUrl']!)
         .maybeSingle();
 
@@ -131,10 +131,10 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
       await supabase
           .from('user_favorite_audios')
           .delete()
-          .match({'user_id': user.id, 'audio_id': audioUrl});
+          .match({'user_profile_id': user.id, 'audio_id': audioUrl});
     } else {
       await supabase.from('user_favorite_audios').insert({
-        'user_id': user.id,
+        'user_profile_id': user.id,
         'audio_id': audioUrl,
         'title': title,
         'image_url': image,
@@ -242,7 +242,9 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
                   children: [
                     IconButton(
                       icon: Image.asset(
-                        isDark ? 'assets/icons/sun_icon.png' : 'assets/icons/moon_icon.png',
+                        isDark
+                            ? 'assets/icons/sun_icon.png'
+                            : 'assets/icons/moon_icon.png',
                         height: 32,
                       ),
                       onPressed: () {
@@ -262,20 +264,21 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
                 ),
               ),
 
-
               const SizedBox(height: 12),
 
-            Slider(
-              value: _position.inSeconds.toDouble(),
-              min: 0,
-              max: _duration.inSeconds.toDouble(),
-              onChanged: (value) {
-                final position = Duration(seconds: value.toInt());
-                _player.seek(position);
-              },
-              activeColor: isDark ? Colors.white : AppStyles.primaryGreen,
-              inactiveColor: isDark ? Colors.white.withOpacity(0.3) : AppStyles.primaryGreen.withOpacity(0.3),
-            ),              
+              Slider(
+                value: _position.inSeconds.toDouble(),
+                min: 0,
+                max: _duration.inSeconds.toDouble(),
+                onChanged: (value) {
+                  final position = Duration(seconds: value.toInt());
+                  _player.seek(position);
+                },
+                activeColor: isDark ? Colors.white : AppStyles.primaryGreen,
+                inactiveColor: isDark
+                    ? Colors.white.withOpacity(0.3)
+                    : AppStyles.primaryGreen.withOpacity(0.3),
+              ),
 
               const SizedBox(height: 10),
 

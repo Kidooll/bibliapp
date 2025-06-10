@@ -1,13 +1,367 @@
 // home_page.dart (redesenhado)
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../styles/styles.dart';
-import '../services/firebase.dart';
+import '../services/devotional_content_service.dart';
 import '../services/unsplash.dart';
 import '../pages/devocional/devocional_tela.dart';
 import '../pages/devocional/citacao_tela.dart';
 import 'package:intl/intl.dart'; // Para formatação de datas
 import 'package:intl/date_symbol_data_local.dart';
+import '../services/user_progress_service.dart';
+import 'package:provider/provider.dart';
+
+class UserProgressPreview extends StatefulWidget {
+  const UserProgressPreview({super.key});
+
+  @override
+  State<UserProgressPreview> createState() => _UserProgressPreviewState();
+}
+
+class _UserProgressPreviewState extends State<UserProgressPreview> {
+  final supabase = Supabase.instance.client;
+  late Future<Map<String, dynamic>?> _userProfileFuture;
+
+  final TextEditingController _nameController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _userProfileFuture = _fetchUserProfile();
+  }
+
+  Future<Map<String, dynamic>?> _fetchUserProfile() async {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) return null;
+
+    try {
+      final response = await supabase
+          .from('user_profiles')
+          .select()
+          .eq('id', userId)
+          .maybeSingle();
+
+      if (response == null) {
+        // Se não existir perfil, cria um novo
+        await supabase.from('user_profiles').insert({
+          'id': userId,
+          'created_at': DateTime.now().toIso8601String(),
+        });
+
+        // Busca o perfil recém-criado
+        return await supabase
+            .from('user_profiles')
+            .select()
+            .eq('id', userId)
+            .single();
+      }
+
+      return response;
+    } catch (e) {
+      print('Erro ao buscar perfil do usuário: $e');
+      return null;
+    }
+  }
+
+  Widget _buildStatItem(BuildContext context,
+      {required String value,
+      required String label,
+      required IconData icon,
+      required Color circleColor,
+      required Color iconColor}) {
+    return Expanded(
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: circleColor,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              color: iconColor,
+              size: 24,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+          ),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.white.withOpacity(0.8),
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _updateDisplayName(String name) async {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) return;
+
+    await supabase.from('user_profiles').upsert({
+      'id': userId,
+      'username': name,
+      'updated_at': DateTime.now().toIso8601String(),
+    });
+
+    setState(() {
+      _userProfileFuture = _fetchUserProfile();
+    });
+  }
+
+  void _showNameDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Como devemos te chamar?'),
+        content: Form(
+          key: _formKey,
+          child: TextFormField(
+            controller: _nameController,
+            decoration: const InputDecoration(
+              labelText: 'Seu nome de exibição',
+              hintText: 'Ex: João, Maria, etc.',
+            ),
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'Por favor, digite um nome válido';
+              }
+              return null;
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (_formKey.currentState!.validate()) {
+                await _updateDisplayName(_nameController.text.trim());
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Salvar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<UserProgressService>(
+      builder: (context, userProgressService, child) {
+        return FutureBuilder<Map<String, dynamic>?>(
+          future: _userProfileFuture,
+          builder: (context, userProfileSnapshot) {
+            if (userProfileSnapshot.connectionState ==
+                ConnectionState.waiting) {
+              return const CircularProgressIndicator();
+            }
+
+            final userProfile = userProfileSnapshot.data;
+            final username = userProfile?['username'] as String?;
+
+            if (username == null || username.isEmpty) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _showNameDialog(context);
+              });
+              return const SizedBox.shrink();
+            }
+
+            return FutureBuilder<Map<String, dynamic>>(
+              future: userProgressService.getUserProgress(),
+              builder: (context, progressSnapshot) {
+                if (progressSnapshot.connectionState ==
+                    ConnectionState.waiting) {
+                  return const CircularProgressIndicator();
+                }
+
+                final progress = progressSnapshot.data!;
+                final totalDevotionalsRead =
+                    progress['total_devotionals_read'] as int? ?? 0;
+                final currentStreakDays =
+                    progress['current_streak_days'] as int? ?? 0;
+                final longestStreakDays =
+                    progress['longest_streak_days'] as int? ?? 0;
+                final weeklyReadDevotionals =
+                    progress['weekly_progress'] as int? ?? 0;
+
+                // Cálculo do progresso semanal (max 7)
+                final weeklyProgressValue = weeklyReadDevotionals / 7.0;
+                final weeklyProgressPercentage =
+                    (weeklyProgressValue * 100).toStringAsFixed(0);
+
+                return Card(
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          const Color(0xFF5E9EA0),
+                          const Color(0xFF4A7D80),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.star,
+                                    color: Colors.white.withOpacity(0.8),
+                                    size: 20),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Meu Progresso',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                ),
+                                Icon(Icons.star,
+                                    color: Colors.white.withOpacity(0.8),
+                                    size: 20),
+                              ],
+                            ),
+                            Row(
+                              children: [
+                                Icon(Icons.local_fire_department,
+                                    color: Colors.white.withOpacity(0.8),
+                                    size: 18),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '$currentStreakDays dias seguidos',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: Colors.white.withOpacity(0.9),
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Semanal: $weeklyReadDevotionals/7',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.white,
+                                  ),
+                            ),
+                            Text(
+                              '$weeklyProgressPercentage%',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(
+                                    color: Colors.white.withOpacity(0.9),
+                                  ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: LinearProgressIndicator(
+                            value: weeklyProgressValue,
+                            minHeight: 8,
+                            backgroundColor: Colors.white.withOpacity(0.3),
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _buildStatItem(
+                              context,
+                              value: totalDevotionalsRead.toString(),
+                              label: 'Lidos',
+                              icon: Icons.menu_book,
+                              circleColor: Colors.white.withOpacity(0.2),
+                              iconColor: Colors.white,
+                            ),
+                            _buildStatItem(
+                              context,
+                              value: longestStreakDays.toString(),
+                              label: 'Recorde',
+                              icon: Icons.emoji_events,
+                              circleColor: Colors.white.withOpacity(0.2),
+                              iconColor: Colors.white,
+                            ),
+                            _buildStatItem(
+                              context,
+                              value: currentStreakDays.toString(),
+                              label: 'Sequência',
+                              icon: Icons.local_fire_department,
+                              circleColor: Colors.white.withOpacity(0.2),
+                              iconColor: Colors.white,
+                            ),
+                            _buildStatItem(
+                              context,
+                              value: weeklyReadDevotionals.toString(),
+                              label: 'Esta semana',
+                              icon: Icons.calendar_today,
+                              circleColor: Colors.white.withOpacity(0.2),
+                              iconColor: Colors.white,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+}
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -17,8 +371,8 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final FirebaseDevotionalService _devotionalService =
-      FirebaseDevotionalService();
+  final DevotionalContentService _devotionalService =
+      DevotionalContentService();
   final UnsplashService _unsplashService = UnsplashService();
   late Future<Map<String, dynamic>?> _devotionalFuture;
   late Future<String> _imageFuture;
@@ -249,7 +603,7 @@ class _HomePageState extends State<HomePage> {
                   MaterialPageRoute(
                     builder: (_) => CitacaoTela(
                       imagemUrl: imageUrl,
-                      citacao: devotional['quote'],
+                      citacao: devotional['citation'],
                       autor: devotional['author'] ?? 'Autor Desconhecido',
                     ),
                   ),
@@ -276,7 +630,7 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(height: 16),
           // Texto da citação
           Text(
-            devotional['quote'] ??
+            devotional['citation'] ??
                 'A vida é um eco. O que você envia volta para você.',
             style: const TextStyle(
               color: Colors.white,
@@ -329,31 +683,67 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               const Spacer(),
-              ElevatedButton(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => DevocionalTela(devocional: devotional),
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  elevation: 0,
-                  foregroundColor: const Color(0xFF1F4549),
-                  side: const BorderSide(color: Color(0xFF5E9EA0)),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                ),
-                child: const Text(
-                  'Ler',
-                  style: TextStyle(
-                    color: Color(0xFF5E9EA0),
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+              Consumer<UserProgressService>(
+                builder: (context, userProgressService, child) {
+                  return ElevatedButton(
+                    onPressed: () async {
+                      print('Botão Ler clicado');
+                      try {
+                        print('Dados do devocional: $devotional');
+                        final int? devotionalId = devotional['id'] as int?;
+                        if (devotionalId == null) {
+                          throw Exception('ID do devocional não encontrado');
+                        }
+
+                        print('ID do devocional: $devotionalId');
+                        await userProgressService
+                            .updateDevotionalRead(devotionalId);
+                        print('updateDevotionalRead concluído');
+
+                        if (mounted) {
+                          print('Navegando para DevocionalTela');
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  DevocionalTela(devocional: devotional),
+                            ),
+                          );
+                          print('Navegação concluída');
+                        }
+                      } catch (e) {
+                        print('Erro ao processar leitura do devocional: $e');
+                        print('Stack trace: ${StackTrace.current}');
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Erro ao atualizar progresso: $e'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      elevation: 0,
+                      foregroundColor: const Color(0xFF1F4549),
+                      side: const BorderSide(color: Color(0xFF5E9EA0)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 8),
+                    ),
+                    child: const Text(
+                      'Ler',
+                      style: TextStyle(
+                        color: Color(0xFF5E9EA0),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  );
+                },
               ),
             ],
           ),
@@ -498,7 +888,7 @@ class _HomePageState extends State<HomePage> {
                           MaterialPageRoute(
                             builder: (_) => CitacaoTela(
                               imagemUrl: imageUrl,
-                              citacao: devotional['quote'] ??
+                              citacao: devotional['citation'] ??
                                   'A vida é um eco. O que você envia volta para você.',
                               autor:
                                   devotional['author'] ?? 'Autor Desconhecido',
@@ -526,7 +916,7 @@ class _HomePageState extends State<HomePage> {
           ),
           const SizedBox(height: 8),
           Text(
-            devotional['quote'] ??
+            devotional['citation'] ??
                 'A vida é um eco. O que você envia volta para você.',
             style: const TextStyle(
               color: Colors.white,
@@ -552,29 +942,67 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               const Spacer(),
-              ElevatedButton(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => DevocionalTela(devocional: devotional),
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                ),
-                child: const Text(
-                  'Ler',
-                  style: TextStyle(
-                    color: Color(0xFF5E9EA0),
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+              Consumer<UserProgressService>(
+                builder: (context, userProgressService, child) {
+                  return ElevatedButton(
+                    onPressed: () async {
+                      print('Botão Ler clicado');
+                      try {
+                        print('Dados do devocional: $devotional');
+                        final int? devotionalId = devotional['id'] as int?;
+                        if (devotionalId == null) {
+                          throw Exception('ID do devocional não encontrado');
+                        }
+
+                        print('ID do devocional: $devotionalId');
+                        await userProgressService
+                            .updateDevotionalRead(devotionalId);
+                        print('updateDevotionalRead concluído');
+
+                        if (mounted) {
+                          print('Navegando para DevocionalTela');
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  DevocionalTela(devocional: devotional),
+                            ),
+                          );
+                          print('Navegação concluída');
+                        }
+                      } catch (e) {
+                        print('Erro ao processar leitura do devocional: $e');
+                        print('Stack trace: ${StackTrace.current}');
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Erro ao atualizar progresso: $e'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      elevation: 0,
+                      foregroundColor: const Color(0xFF1F4549),
+                      side: const BorderSide(color: Color(0xFF5E9EA0)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 8),
+                    ),
+                    child: const Text(
+                      'Ler',
+                      style: TextStyle(
+                        color: Color(0xFF5E9EA0),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  );
+                },
               ),
             ],
           ),
@@ -658,6 +1086,7 @@ class _HomePageState extends State<HomePage> {
                       children: [
                         const SizedBox(height: 8),
                         _buildHeader(),
+                        UserProgressPreview(),
                         _buildProgressCard(),
                         _buildCalendar(),
                         _buildCombinedCard(
@@ -665,7 +1094,7 @@ class _HomePageState extends State<HomePage> {
                             imageSnapshot
                                 .data), // Novo card combinado com botões
                         _buildFeatureImage(),
-                        // Espaço para a navegação inferior
+                        // Espaço para a navegação inferior (será coberto pela BottomNavigationBar)
                         const SizedBox(height: 80),
                       ],
                     ),
@@ -683,6 +1112,6 @@ class _HomePageState extends State<HomePage> {
 // Extensão para capitalizar primeira letra
 extension StringExtension on String {
   String capitalize() {
-    return "${this[0].toUpperCase()}${this.substring(1)}";
+    return "${this[0].toUpperCase()}${substring(1).toLowerCase()}";
   }
 }

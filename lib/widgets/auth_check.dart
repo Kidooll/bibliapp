@@ -7,26 +7,50 @@ class AuthCheck extends StatelessWidget {
   final Widget child;
 
   const AuthCheck({
-    Key? key,
+    super.key,
     required this.child,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
     return Consumer<AuthService>(
       builder: (context, authService, _) {
-        if (authService.isLoading) {
+        debugPrint('AuthCheck - isInitialized: ${authService.isInitialized}');
+        debugPrint('AuthCheck - isLoading: ${authService.isLoading}');
+        debugPrint(
+            'AuthCheck - isAuthenticated: ${authService.isAuthenticated}');
+
+        // Mostra loading enquanto inicializa
+        if (!authService.isInitialized || authService.isLoading) {
           return const Scaffold(
+            backgroundColor: Colors.white,
             body: Center(
-              child: CircularProgressIndicator(),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text(
+                    'Carregando...',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Color(0xFF5E9EA0),
+                    ),
+                  ),
+                ],
+              ),
             ),
           );
         }
 
+        // Redireciona para login se não estiver autenticado
         if (!authService.isAuthenticated) {
+          debugPrint('AuthCheck - Redirecionando para LoginScreen');
           return const LoginScreen();
         }
 
+        // Retorna o conteúdo principal se estiver autenticado
+        debugPrint('AuthCheck - Retornando conteúdo principal');
         return child;
       },
     );

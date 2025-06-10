@@ -2,6 +2,8 @@
 import 'package:flutter/material.dart';
 import '../../styles/styles.dart';
 import '../../services/local_storage_service.dart';
+import '../../services/user_progress_service.dart';
+import 'package:provider/provider.dart';
 
 class DevocionalTela extends StatefulWidget {
   final Map<String, dynamic> devocional;
@@ -21,7 +23,14 @@ class _DevocionalTelaState extends State<DevocionalTela> {
   @override
   void initState() {
     super.initState();
+    print('DevocionalTela - Inicializando');
+    print('Dados do devocional recebidos: ${widget.devocional}');
     _loadFontSize();
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
   }
 
   Future<void> _loadFontSize() async {
@@ -169,6 +178,11 @@ class _DevocionalTelaState extends State<DevocionalTela> {
       );
     }
 
+    print('DevocionalTela - Construindo widget');
+    print('Título: ${widget.devocional['title']}');
+    print('Versículo: ${widget.devocional['verse']}');
+    print('Reflexão: ${widget.devocional['reflection']}');
+
     return Scaffold(
       backgroundColor: const Color(0xFFfffffd),
       appBar: AppBar(
@@ -214,8 +228,8 @@ class _DevocionalTelaState extends State<DevocionalTela> {
             const SizedBox(height: 16),
             // Versículos
             _buildScripture(
-              widget.devocional['scripture'] ?? 'Sem versículo',
-              widget.devocional['reference'] ?? 'Sem referência',
+              widget.devocional['verse'] ?? 'Sem versículo',
+              widget.devocional['word'] ?? 'Sem referência',
               context,
             ),
 
@@ -232,7 +246,7 @@ class _DevocionalTelaState extends State<DevocionalTela> {
             // Aplicação
             _buildSection(
               'Como colocar em prática',
-              widget.devocional['application'] ?? 'Sem aplicação',
+              widget.devocional['practical_application'] ?? 'Sem aplicação',
               context,
               icon: Icons.checklist,
             ),
@@ -273,12 +287,12 @@ class _DevocionalTelaState extends State<DevocionalTela> {
                     onPressed: () {/* Favoritar */},
                     icon: const Icon(
                       Icons.bookmark_border,
-                      color: const Color(0xFF29535a),
+                      color: Color(0xFF29535a),
                     ),
                     label: const Text('Salvar'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xFF29535a),
-                      side: BorderSide(color: const Color(0xFF29535a)),
+                      side: const BorderSide(color: Color(0xFF29535a)),
                     ),
                   ),
                 ),

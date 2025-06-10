@@ -92,15 +92,16 @@ class CircleProgressPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(CircleProgressPainter oldDelegate) {
-    return progress != oldDelegate.progress || 
-           color != oldDelegate.color ||
-           strokeWidth != oldDelegate.strokeWidth;
+    return progress != oldDelegate.progress ||
+        color != oldDelegate.color ||
+        strokeWidth != oldDelegate.strokeWidth;
   }
 }
 
 /// Tween para animação de transição de cor
 class HighlightColorTween extends Tween<Color?> {
-  HighlightColorTween({Color? begin, Color? end}) : super(begin: begin, end: end);
+  HighlightColorTween({Color? begin, Color? end})
+      : super(begin: begin, end: end);
 
   @override
   Color? lerp(double t) => Color.lerp(begin, end, t);
@@ -108,13 +109,13 @@ class HighlightColorTween extends Tween<Color?> {
 
 // Adicione esta função RPC no seu banco de dados Supabase:
 /*
-create or replace function get_highlights_for_verse(p_verse_id bigint, p_user_id uuid)
+create or replace function get_highlights_for_verse(p_verse_id bigint, p_user_profile_id uuid)
 returns json as $$
   select json_agg(t) from (
     select * 
     from bookmarks 
     where 
-      user_id = p_user_id 
+      user_profile_id = p_user_profile_id 
       and bookmark_type = 'highlight'
       and verse_ids @> array[p_verse_id]::bigint[]
   ) t;
@@ -146,18 +147,21 @@ class _VerseActionsModalState extends State<VerseActionsModal>
   final SupabaseClient _supabase = Supabase.instance.client;
   bool _isLoading = false;
   String? _currentHighlightColor;
-  String? _lastSelectedColor; // Stores the previous highlight color for error recovery
+  String?
+      _lastSelectedColor; // Stores the previous highlight color for error recovery
   late final AnimationController _colorController;
   late final ColorTween _colorTween;
 
   // Chave para o cache do usuário atual
   String? get _cacheKey => _supabase.auth.currentUser?.id;
-  
+
   // Chave única para o cache deste versículo
-  String? get _verseCacheKey => _cacheKey != null ? '${_cacheKey}_${widget.verseId}' : null;
-  
+  String? get _verseCacheKey =>
+      _cacheKey != null ? '${_cacheKey}_${widget.verseId}' : null;
+
   // Verifica se há um highlight ativo
-  bool get _hasHighlight => _currentHighlightColor != null && _currentHighlightColor!.isNotEmpty;
+  bool get _hasHighlight =>
+      _currentHighlightColor != null && _currentHighlightColor!.isNotEmpty;
 
   @override
   void initState() {
@@ -210,15 +214,15 @@ class _VerseActionsModalState extends State<VerseActionsModal>
   /// Inicializa o estado do highlight
   void _initializeHighlightState() {
     if (_verseCacheKey == null) return;
-    
+
     _loadHighlightFromCache();
     _loadHighlightFromDatabase();
   }
-  
+
   /// Carrega o highlight do cache
   void _loadHighlightFromCache() {
     if (_verseCacheKey == null) return;
-    
+
     final cachedHighlight = HighlightCache.getHighlight(_verseCacheKey!);
     if (cachedHighlight != null && mounted) {
       setState(() {
@@ -230,24 +234,26 @@ class _VerseActionsModalState extends State<VerseActionsModal>
   /// Carrega o highlight do banco de dados
   Future<void> _loadHighlightFromDatabase() async {
     if (_verseCacheKey == null) return;
-    
+
     try {
       final user = _supabase.auth.currentUser;
       if (user == null) return;
 
-      final response = await _supabase.rpc('get_highlights_for_verse',
-          params: {'p_verse_id': widget.verseId, 'p_user_id': user.id}).maybeSingle();
-          
+      final response = await _supabase.rpc('get_highlights_for_verse', params: {
+        'p_verse_id': widget.verseId,
+        'p_user_profile_id': user.id
+      }).maybeSingle();
+
       if (response != null) {
         final highlight = response;
         final highlightColor = highlight['highlight_color'] as String?;
-        
+
         if (highlightColor != null && mounted) {
           setState(() {
             _currentHighlightColor = highlightColor;
             _colorController.value = 1.0;
           });
-          
+
           // Atualiza o cache local
           HighlightCache.updateHighlight(_verseCacheKey!, highlight);
         }
@@ -261,9 +267,10 @@ class _VerseActionsModalState extends State<VerseActionsModal>
   void _updateColorTween() {
     _colorTween.begin = _colorTween.end;
     _colorTween.end = _currentHighlightColor != null
-        ? Color(int.parse(_currentHighlightColor!.substring(1, 7), radix: 16) + 0xFF000000)
+        ? Color(int.parse(_currentHighlightColor!.substring(1, 7), radix: 16) +
+            0xFF000000)
         : Colors.transparent;
-    
+
     // Update the animation with the new tween values
     _colorTween.animate(CurvedAnimation(
       parent: _colorController,
@@ -319,10 +326,12 @@ class _VerseActionsModalState extends State<VerseActionsModal>
                 height: 32,
                 margin: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
-                  color: Color(int.parse(color.substring(1, 7), radix: 16) + 0xFF000000),
+                  color: Color(
+                      int.parse(color.substring(1, 7), radix: 16) + 0xFF000000),
                   shape: BoxShape.circle,
                   border: isSelected
-                      ? Border.all(color: Theme.of(context).primaryColor, width: 2)
+                      ? Border.all(
+                          color: Theme.of(context).primaryColor, width: 2)
                       : null,
                   boxShadow: [
                     if (isSelected)
@@ -492,20 +501,17 @@ class _VerseActionsModalState extends State<VerseActionsModal>
   }
 
   Future<void> _performDatabaseUpdate(
-    String hex, String userId, dynamic existingHighlightId) async {
+      String hex, String userId, dynamic existingHighlightId) async {
     try {
       // Se existe um highlight, atualiza. Senão, cria um novo.
       if (existingHighlightId != null) {
-        await _supabase
-            .from('bookmarks')
-            .update({
-              'highlight_color': hex,
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', existingHighlightId);
+        await _supabase.from('bookmarks').update({
+          'highlight_color': hex,
+          'updated_at': DateTime.now().toIso8601String(),
+        }).eq('id', existingHighlightId);
       } else {
         await _supabase.from('bookmarks').insert({
-          'user_id': userId,
+          'user_profile_id': userId,
           'verse_ids': [widget.verseId],
           'bookmark_type': 'highlight',
           'highlight_color': hex,
@@ -520,7 +526,7 @@ class _VerseActionsModalState extends State<VerseActionsModal>
 
   /// Processa a atualização do destaque
   Future<void> _processHighlightUpdate(
-    String hex, String userId, ScaffoldMessengerState scaffold) async {
+      String hex, String userId, ScaffoldMessengerState scaffold) async {
     if (_verseCacheKey == null) return;
 
     final now = DateTime.now().toIso8601String();
@@ -534,7 +540,7 @@ class _VerseActionsModalState extends State<VerseActionsModal>
       if (mounted) {
         final updatedHighlight = {
           'id': existingHighlightId,
-          'user_id': userId,
+          'user_profile_id': userId,
           'verse_ids': [widget.verseId],
           'bookmark_type': 'highlight',
           'highlight_color': hex,
@@ -559,7 +565,8 @@ class _VerseActionsModalState extends State<VerseActionsModal>
         widget.onRefresh();
         scaffold.showSnackBar(
           SnackBar(
-            content: Text(hex.isEmpty ? 'Destaque removido' : 'Versículo destacado'),
+            content:
+                Text(hex.isEmpty ? 'Destaque removido' : 'Versículo destacado'),
             duration: const Duration(seconds: 2),
             behavior: SnackBarBehavior.floating,
           ),
@@ -574,7 +581,7 @@ class _VerseActionsModalState extends State<VerseActionsModal>
 
   void _showError(String message) {
     if (!mounted) return;
-    
+
     final scaffold = ScaffoldMessenger.of(context);
     scaffold.showSnackBar(
       SnackBar(
@@ -588,7 +595,7 @@ class _VerseActionsModalState extends State<VerseActionsModal>
   Future<void> _copyToClipboard() async {
     await Clipboard.setData(ClipboardData(text: widget.text));
     if (!mounted) return;
-    
+
     final scaffold = ScaffoldMessenger.of(context);
     Navigator.pop(context);
     scaffold.showSnackBar(

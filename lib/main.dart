@@ -1,66 +1,100 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'notePage.dart'; // Certifique-se de que DiarioPage está aqui
-import 'providers/biblia_provider.dart';
-import 'pages/biblia/book_list_page.dart';
+import 'config/app_config.dart';
+import 'providers/app_providers.dart';
+import 'styles/app_theme.dart';
 import 'pages/home_page.dart';
 import 'pages/explorar/explorar_page.dart';
+import 'pages/biblia/book_list_page.dart';
 import 'pages/oracoes_page.dart';
-import 'services/firestore_service.dart';
-import 'styles/styles.dart';
-import 'pages/login/login_controller.dart';
-import 'services/auth_service.dart';
+import 'notePage.dart';
 import 'widgets/auth_check.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
+import 'services/auth_service.dart';
+import 'providers/biblia_provider.dart';
+import 'services/study_service.dart';
+import 'services/user_progress_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Inicializa o Firebase
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  try {
+    // Inicializa o Supabase
+    await Supabase.initialize(
+      url: 'https://llcnxgrlvldvnhpsapdx.supabase.co',
+      anonKey:
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxsY254Z3Jsdmxkdm5ocHNhcGR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NzUyMzIsImV4cCI6MjA2MzQ1MTIzMn0.SmQ17LcUGX695I8h1yLYT853ic2QwNvneYm_XubbTLk',
+    );
+    debugPrint('Supabase inicializado com sucesso');
+  } catch (e) {
+    debugPrint('Erro ao inicializar serviços: $e');
+  }
 
-  // Inicializa o Supabase
-  await Supabase.initialize(
-    url: 'https://llcnxgrlvldvnhpsapdx.supabase.co',
-    anonKey:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxsY254Z3Jsdmxkdm5ocHNhcGR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NzUyMzIsImV4cCI6MjA2MzQ1MTIzMn0.SmQ17LcUGX695I8h1yLYT853ic2QwNvneYm_XubbTLk',
-  );
-
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => BibliaProvider()),
-        ChangeNotifierProvider(create: (_) => FirestoreService()),
-        ChangeNotifierProvider(create: (_) => AuthService()),
-      ],
-      child: const DevocionalApp(),
-    ),
-  );
+  runApp(const MyApp());
 }
 
-class DevocionalApp extends StatelessWidget {
-  const DevocionalApp({super.key});
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Adoração Diária',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primarySwatch: Colors.green,
-        scaffoldBackgroundColor: const Color(0xFFf1fffd),
-        fontFamily: 'Merriweather',
-        textTheme: const TextTheme(
-          headlineMedium: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => UserProgressService()),
+        ChangeNotifierProvider(create: (_) => AuthService()),
+        ChangeNotifierProvider(create: (_) => BibliaProvider()),
+        ChangeNotifierProvider(create: (_) => StudyService()),
+      ],
+      child: MaterialApp(
+        title: 'Bíblia Devocional',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          primaryColor: const Color(0xFF5E9EA0),
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF5E9EA0),
+            primary: const Color(0xFF5E9EA0),
+            secondary: const Color(0xFF2C3E50),
+          ),
+          useMaterial3: true,
+        ),
+        home: const AuthCheck(
+          child: MainScreen(),
         ),
       ),
-      home: const AuthCheck(
-        child: MainNavigation(),
-      ),
+    );
+  }
+}
+
+class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
+
+  @override
+  State<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<MainScreen> {
+  int _selectedIndex = 0;
+  final PageStorageBucket _bucket = PageStorageBucket();
+
+  final List<Widget> _pages = <Widget>[
+    const HomePage(key: PageStorageKey('HomePage')),
+    const ExplorarPage(key: PageStorageKey('ExplorarPage')),
+    const BookListPage(key: PageStorageKey('BookListPage')),
+    const OracoesPage(key: PageStorageKey('OracoesPage')),
+    const NotePage(key: PageStorageKey('NotePage')),
+  ];
+
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: PageStorage(bucket: _bucket, child: _pages[_selectedIndex]),
+      bottomNavigationBar: MainNavigation(),
     );
   }
 }

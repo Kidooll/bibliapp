@@ -4,7 +4,6 @@ import '../../services/unsplash.dart';
 import 'components/estudos_section.dart';
 import 'components/para_dormir_section.dart';
 import 'components/mente_section.dart';
-import 'package:firebase_core/firebase_core.dart';
 
 class ExplorarPage extends StatelessWidget {
   const ExplorarPage({super.key});

@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:math';
-import '../../../services/firestore_service.dart';
+import '../../../services/study_service.dart';
 import '../../../pages/estudo_detalhes_page.dart';
 import 'todos_estudos_page.dart';
 
@@ -13,7 +12,7 @@ class EstudosSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final firestore = Provider.of<FirestoreService>(context);
+    final studyService = Provider.of<StudyService>(context, listen: false);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -23,16 +22,16 @@ class EstudosSection extends StatelessWidget {
           _header(context),
           SizedBox(
             height: 180,
-            child: StreamBuilder<QuerySnapshot>(
-              stream: firestore.getEstudos(),
+            child: FutureBuilder<List<Map<String, dynamic>>>(
+              future: studyService.getEstudos(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                final docs = snapshot.data!.docs;
+                final estudos = snapshot.data!;
 
-                if (docs.isEmpty) {
+                if (estudos.isEmpty) {
                   return Center(
                     child: Text('Nenhum estudo encontrado.'),
                   );
@@ -40,13 +39,17 @@ class EstudosSection extends StatelessWidget {
 
                 return ListView.separated(
                   scrollDirection: Axis.horizontal,
-                  itemCount: docs.length,
+                  itemCount: estudos.length,
                   separatorBuilder: (_, __) => const SizedBox(width: 12),
                   itemBuilder: (context, index) {
-                    final doc = docs[index];
-                    final data = doc.data() as Map<String, dynamic>;
-                    final titulo = data['title'] ?? 'Sem título';
-                    final conteudo = data['content'] ?? '';
+                    final estudo = estudos[index];
+                    final titulo = estudo['title'] ?? 'Sem título';
+                    final conteudo = estudo['content'] ?? '';
+                    final tipo = estudo['type'] ?? 'Estudo';
+                    final dataCriacao = estudo['created_at'] != null
+                        ? DateTime.parse(estudo['created_at'])
+                        : DateTime.now();
+                    final dataFormatada = '${dataCriacao.day}/${dataCriacao.month}/${dataCriacao.year}';
                     // Imagem fixa do Unsplash para todos os estudos
                     final imagem =
                         'https://images.unsplash.com/photo-1504052434569-70ad5836ab65?q=80&w=1000';
@@ -65,7 +68,11 @@ class EstudosSection extends StatelessWidget {
                                 'title': titulo,
                                 'content': conteudo,
                                 'image': imagem,
-                                'id': doc.id,
+                                'id': estudo['id'].toString(),
+                                'type': tipo,
+                                'created_at': estudo['created_at'],
+                                'tags': estudo['tags'],
+                                'metadata': estudo['metadata'],
                               },
                             ),
                           ),
@@ -100,11 +107,28 @@ class EstudosSection extends StatelessWidget {
                               titulo,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                              ),
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.shade100,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    tipo,
+                                    style: TextStyle(fontSize: 10, color: Colors.green.shade800),
+                                  ),
+                                ),
+                                Text(
+                                  dataFormatada,
+                                  style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                                ),
+                              ],
                             ),
                           ],
                         ),

@@ -35,7 +35,7 @@
 - **Supabase** (Dados do usuário e destaques)
 - **Bolls.life API** (Conteúdo bíblico NVI)
 - **Google Drive** (para áudios devocionais)
-- **Pipedream / GPT** (para geração dos devocionais)
+- **Devocionais** (Upados e revisados diariamente)
 
 ---
 
